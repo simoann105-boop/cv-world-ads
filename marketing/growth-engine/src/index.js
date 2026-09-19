@@ -17,6 +17,7 @@ const CONFIG = {
   pageId: process.env.FACEBOOK_PAGE_ID || "",
   pageToken: process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "",
   maxJobs: Number(process.env.MAX_JOBS_PER_POST || 5),
+  contentType: process.env.POST_TYPE || "auto",
   minHoursBetweenSimilarPosts: Number(process.env.MIN_HOURS_BETWEEN_SIMILAR_POSTS || 10),
   brandAssets: {
     logo: process.env.CVWORLD_LOGO_PATH || path.resolve(ROOT, "assets", "icon", "app_icon.png"),
@@ -92,6 +93,82 @@ const BENEFIT_LINES_EN = [
   "✅ Faster applying with direct links when available",
 ];
 
+const CAREER_TIPS_AR = [
+  {
+    headline: "كيف تجاوب على سؤال: حدثني عن نفسك؟",
+    hook: "في مقابلات الخليج، لا تبدأ بقصة طويلة. أعطِ جوابا مركزا يربط خبرتك بالوظيفة.",
+    tips: [
+      "ابدأ بخبرتك الحالية أو آخر منصب لك.",
+      "اذكر إنجازا واحدا بالأرقام إن أمكن.",
+      "اختم بسبب اهتمامك بهذه الوظيفة بالتحديد.",
+    ],
+    cta: "جهز CV قوي ثم تدرب على إجابتك قبل المقابلة.",
+  },
+  {
+    headline: "قبل أن تقدم على وظيفة في الخليج",
+    hook: "لا ترسل نفس السيرة لكل إعلان. التعديل الصغير قد يرفع فرصة ظهورك للـHR.",
+    tips: [
+      "ضع كلمات الإعلان داخل CV بشكل طبيعي.",
+      "رتب الخبرات الأهم في أول الصفحة.",
+      "اكتب إنجازات واضحة بدل المهام العامة.",
+    ],
+    cta: "استخدم CV World لتجهيز سيرة مناسبة بسرعة.",
+  },
+  {
+    headline: "كيف تزيد فرصة قبولك في المقابلة؟",
+    hook: "الـHR لا يبحث فقط عن الخبرة، بل عن شخص واضح وجاهز ويعرف قيمة نفسه.",
+    tips: [
+      "اقرأ عن الشركة قبل المقابلة.",
+      "جهز مثالين عن حل مشكلة أو تحمل مسؤولية.",
+      "اسأل سؤالا ذكيا في نهاية المقابلة.",
+    ],
+    cta: "تابع الوظائف وتدرب يوميا مع CV World.",
+  },
+  {
+    headline: "خطأ شائع في البحث عن عمل",
+    hook: "كثير من المتقدمين يرسلون عشرات الطلبات بدون متابعة أو تحسين للـCV.",
+    tips: [
+      "راجع سيرتك كل أسبوع.",
+      "تقدم بسرعة على الوظائف الجديدة.",
+      "اكتب رسالة قصيرة مناسبة لكل وظيفة مهمة.",
+    ],
+    cta: "ابدأ من CV World وخلي بحثك منظم.",
+  },
+];
+
+const CAREER_TIPS_EN = [
+  {
+    headline: "How to answer: Tell me about yourself",
+    hook: "Keep it short, relevant, and connected to the role. Recruiters remember clarity.",
+    tips: [
+      "Start with your current or most recent role.",
+      "Mention one measurable achievement.",
+      "End with why this job is a strong fit.",
+    ],
+    cta: "Build your CV, then practice your interview answer.",
+  },
+  {
+    headline: "Before applying for Gulf jobs",
+    hook: "A generic CV gets ignored. A targeted CV helps HR quickly understand your fit.",
+    tips: [
+      "Mirror important keywords from the job post.",
+      "Move your strongest experience to the top.",
+      "Use achievements, not only responsibilities.",
+    ],
+    cta: "Use CV World to prepare a sharper CV faster.",
+  },
+  {
+    headline: "Win the interview with better examples",
+    hook: "Good answers are specific. Prepare stories before the call, not during it.",
+    tips: [
+      "Prepare examples for teamwork and pressure.",
+      "Explain the action you took, not only the problem.",
+      "Show the result clearly.",
+    ],
+    cta: "Find jobs and prepare with CV World.",
+  },
+];
+
 function parseServiceAccount() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!raw) {
@@ -132,7 +209,9 @@ function nowInQatar() {
 
 function currentSlot() {
   const qatar = nowInQatar();
-  return qatar.hour < 14 ? "morning" : "evening";
+  if (qatar.hour < 12) return "morning";
+  if (qatar.hour < 18) return "afternoon";
+  return "evening";
 }
 
 function safeText(value = "") {
@@ -240,6 +319,24 @@ function pick(array, seed) {
   return array[hash[0] % array.length];
 }
 
+function deterministicIndex(seed, length) {
+  if (!length) return 0;
+  const hash = crypto.createHash("sha1").update(seed).digest();
+  return hash[0] % length;
+}
+
+function choosePostKind({ slot, country, language }) {
+  if (["jobs_list", "job_spotlight", "career_tip"].includes(CONFIG.contentType)) {
+    return CONFIG.contentType;
+  }
+
+  if (slot !== "afternoon") return "jobs_list";
+
+  const qatar = nowInQatar();
+  const seed = `${qatar.date}-${country}-${language}-afternoon-growth`;
+  return deterministicIndex(seed, 5) < 3 ? "career_tip" : "job_spotlight";
+}
+
 function uniqueHashtags(tags) {
   return [...new Set(tags)].slice(0, 8).join(" ");
 }
@@ -265,6 +362,7 @@ function composePost({ jobs, country, language, slot }) {
     ]);
 
     return {
+      kind: "jobs_list",
       title: `${profile.flag} New jobs in ${profile.en}`,
       headline: `New jobs in ${profile.en}`,
       subheadline: "Fresh opportunities selected today",
@@ -301,6 +399,7 @@ function composePost({ jobs, country, language, slot }) {
   ]);
 
   return {
+    kind: "jobs_list",
     title: `${profile.flag} وظائف جديدة في ${profile.ar}`,
     headline: `وظائف جديدة في ${profile.ar}`,
     subheadline: "أبرز فرص اليوم المختارة",
@@ -321,6 +420,147 @@ function composePost({ jobs, country, language, slot }) {
     ].filter(Boolean).join("\n"),
     cta: "جهز CV احترافي وابدأ التقديم بثقة",
     selectedJobs,
+  };
+}
+
+function composeJobSpotlight({ job, country, language }) {
+  const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
+  const location = job.location ? ` - ${job.location}` : "";
+
+  if (language === "en") {
+    const hashtags = uniqueHashtags([
+      ...profile.hashtags,
+      "#CVWorld",
+      "#NowHiring",
+      "#CareerOpportunity",
+      "#ResumeBuilder",
+    ]);
+
+    return {
+      kind: "job_spotlight",
+      title: `${profile.flag} Featured job from CV World`,
+      headline: job.title,
+      subheadline: `${job.company}${location}`,
+      message: [
+        `${profile.flag} Featured job on CV World`,
+        "",
+        `Today’s highlighted opportunity: ${job.title}`,
+        `Company: ${job.company}${location}`,
+        "",
+        "Want a stronger application?",
+        "✅ Prepare a professional CV",
+        "✅ Apply faster when direct links are available",
+        "✅ Keep checking fresh jobs daily",
+        "",
+        `Open CV World: ${CONFIG.appLink}`,
+        "",
+        hashtags,
+      ].join("\n"),
+      cta: "Featured by CV World",
+      selectedJobs: [job],
+    };
+  }
+
+  const hashtags = uniqueHashtags([
+    ...profile.hashtags,
+    "#CVWorld",
+    "#وظائف",
+    "#فرص_عمل",
+    "#سيرة_ذاتية",
+  ]);
+
+  return {
+    kind: "job_spotlight",
+    title: `${profile.flag} وظيفة مميزة من CV World`,
+    headline: job.title,
+    subheadline: `${job.company}${location}`,
+    message: [
+      `${profile.flag} وظيفة مميزة اليوم على CV World`,
+      "",
+      `الوظيفة: ${job.title}`,
+      `الشركة: ${job.company}${location}`,
+      "",
+      "قبل التقديم، جهز نفسك جيدا:",
+      "✅ CV مرتب وواضح",
+      "✅ كلمات مناسبة لنفس مجال الوظيفة",
+      "✅ متابعة يومية للوظائف الجديدة",
+      "",
+      `ابدأ من هنا: ${CONFIG.appLink}`,
+      "",
+      hashtags,
+    ].join("\n"),
+    cta: "وظيفة مختارة من CV World",
+    selectedJobs: [job],
+  };
+}
+
+function composeCareerTip({ country, language, slot }) {
+  const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
+  const seed = `${country}-${language}-${slot}-${new Date().toISOString().slice(0, 10)}-tip`;
+  const tip = pick(language === "en" ? CAREER_TIPS_EN : CAREER_TIPS_AR, seed);
+
+  if (language === "en") {
+    const hashtags = uniqueHashtags([
+      ...profile.hashtags,
+      "#CVWorld",
+      "#InterviewTips",
+      "#GulfJobs",
+      "#CareerAdvice",
+    ]);
+
+    return {
+      kind: "career_tip",
+      title: `Career tip by CV World`,
+      headline: tip.headline,
+      subheadline: "Daily career advice for better applications",
+      message: [
+        "💡 CV World career tip",
+        "",
+        tip.hook,
+        "",
+        ...tip.tips.map((line) => `✅ ${line}`),
+        "",
+        tip.cta,
+        "",
+        `Start here: ${CONFIG.appLink}`,
+        "",
+        hashtags,
+      ].join("\n"),
+      cta: "Daily career advice",
+      tip,
+      selectedJobs: [],
+    };
+  }
+
+  const hashtags = uniqueHashtags([
+    ...profile.hashtags,
+    "#CVWorld",
+    "#نصائح_مهنية",
+    "#مقابلة_عمل",
+    "#سيرة_ذاتية",
+  ]);
+
+  return {
+    kind: "career_tip",
+    title: "نصيحة مهنية من CV World",
+    headline: tip.headline,
+    subheadline: "نصيحة يومية للبحث عن عمل بثقة",
+    message: [
+      "💡 نصيحة CV World اليوم",
+      "",
+      tip.hook,
+      "",
+      ...tip.tips.map((line) => `✅ ${line}`),
+      "",
+      tip.cta,
+      "",
+      `ابدأ من هنا: ${CONFIG.appLink}`,
+      "",
+      hashtags,
+    ].join("\n"),
+    cta: "نصائح مهنية يومية",
+    tip,
+    selectedJobs: [],
   };
 }
 
@@ -364,7 +604,67 @@ async function logoDataUri() {
   }
 }
 
+async function renderTipImage({ post, country, language }) {
+  await fs.mkdir(OUTPUT_DIR, { recursive: true });
+  const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
+  const logo = await logoDataUri();
+  const isArabic = language === "ar";
+  const anchor = isArabic ? "end" : "start";
+  const x = isArabic ? 1020 : 120;
+  const tipLines = post.tip.tips.slice(0, 3);
+
+  const bulletBlocks = tipLines.map((line, index) => {
+    const y = 560 + index * 118;
+    const lines = wrapText(line, isArabic ? 39 : 44);
+    return `
+      <rect x="112" y="${y - 52}" width="976" height="92" rx="22" fill="#FFFFFF" opacity="0.94"/>
+      <circle cx="${isArabic ? 1038 : 162}" cy="${y - 6}" r="26" fill="#25D0FF"/>
+      <text x="${isArabic ? 1038 : 162}" y="${y + 4}" text-anchor="middle" font-size="24" font-weight="900" fill="#06111F">${index + 1}</text>
+      ${lines.map((text, lineIndex) =>
+        `<text x="${isArabic ? 980 : 214}" y="${y - 12 + lineIndex * 30}" text-anchor="${anchor}" font-size="27" font-weight="750" fill="#0B1220">${escapeXml(text)}</text>`,
+      ).join("")}
+    `;
+  }).join("");
+
+  const headlineLines = wrapText(post.headline, isArabic ? 24 : 28);
+  const headlineSvg = headlineLines.map((line, index) =>
+    `<text x="${x}" y="${286 + index * 72}" text-anchor="${anchor}" font-size="64" font-weight="950" fill="#FFFFFF">${escapeXml(line)}</text>`,
+  ).join("");
+
+  const svg = `
+  <svg width="1200" height="1200" viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="tipBg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#07111F"/>
+        <stop offset="48%" stop-color="#123A5A"/>
+        <stop offset="100%" stop-color="#0FA3B1"/>
+      </linearGradient>
+    </defs>
+    <rect width="1200" height="1200" fill="url(#tipBg)"/>
+    <rect x="72" y="72" width="1056" height="1056" rx="48" fill="#FFFFFF" opacity="0.07"/>
+    <image href="${logo}" x="${isArabic ? 950 : 100}" y="92" width="112" height="112"/>
+    <text x="${isArabic ? 920 : 232}" y="140" text-anchor="${anchor}" font-size="35" font-weight="900" fill="#FFFFFF">CV World</text>
+    <text x="${isArabic ? 920 : 232}" y="180" text-anchor="${anchor}" font-size="24" font-weight="700" fill="#9EEBFF">${escapeXml(post.cta)}</text>
+    ${headlineSvg}
+    <text x="${x}" y="458" text-anchor="${anchor}" font-size="30" font-weight="750" fill="#BDEFFF">${escapeXml(post.subheadline)}</text>
+    ${bulletBlocks}
+    <rect x="112" y="930" width="976" height="128" rx="26" fill="#25D0FF"/>
+    <text x="600" y="985" text-anchor="middle" font-size="34" font-weight="950" fill="#06111F">${isArabic ? "جهز سيرتك وتابع فرص العمل يوميا" : "Build your CV and follow fresh jobs daily"}</text>
+    <text x="600" y="1032" text-anchor="middle" font-size="27" font-weight="800" fill="#06111F">${escapeXml(CONFIG.appLink)}</text>
+    <text x="600" y="1132" text-anchor="middle" font-size="24" font-weight="800" fill="#FFFFFF" opacity="0.88">#CVWorld • ${escapeXml(profile.en)} • Career Tips</text>
+  </svg>`;
+
+  const hash = crypto.createHash("sha1").update(`${post.message}-${Date.now()}`).digest("hex").slice(0, 10);
+  const output = path.join(OUTPUT_DIR, `cvworld-career-tip-${hash}.png`);
+  await sharp(Buffer.from(svg)).png().toFile(output);
+  return output;
+}
+
 async function renderImage({ post, country, language }) {
+  if (post.kind === "career_tip") {
+    return renderTipImage({ post, country, language });
+  }
+
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
   const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
   const logo = await logoDataUri();
@@ -457,14 +757,26 @@ async function main() {
   const country = process.env.TARGET_COUNTRY || chooseCountry(jobs, recentPosts);
   const language = process.env.POST_LANGUAGE || chooseLanguage(country, slot);
   const countryJobs = jobs.filter((job) => job.country === country);
+  const postKind = choosePostKind({ slot, country, language });
 
-  if (!countryJobs.length) {
+  if (postKind !== "career_tip" && !countryJobs.length) {
     throw new Error(`No active jobs found for country ${country}.`);
   }
 
-  const post = composePost({ jobs, country, language, slot });
+  let post;
+  if (postKind === "career_tip") {
+    post = composeCareerTip({ country, language, slot });
+  } else if (postKind === "job_spotlight") {
+    const seed = `${country}-${language}-${slot}-${new Date().toISOString().slice(0, 10)}-spotlight`;
+    const spotlightJob = countryJobs.slice(0, 12)[deterministicIndex(seed, Math.min(countryJobs.length, 12))];
+    post = composeJobSpotlight({ job: spotlightJob, country, language });
+  } else {
+    post = composePost({ jobs, country, language, slot });
+  }
+
   const imagePath = await renderImage({ post, country, language });
   const dryRunPayload = {
+    kind: post.kind,
     slot,
     country,
     language,
@@ -480,6 +792,7 @@ async function main() {
 
   const facebook = await publishPhoto({ message: post.message, imagePath });
   await logPost(db, {
+    kind: post.kind,
     slot,
     country,
     language,
