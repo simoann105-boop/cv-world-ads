@@ -2,8 +2,9 @@ name: CV World Growth Engine - Facebook
 
 on:
   schedule:
-    # Qatar is UTC+3. These run at 09:00 and 21:00 Asia/Qatar.
+    # Qatar is UTC+3. These run at 09:00, 15:00, and 21:00 Asia/Qatar.
     - cron: "0 6 * * *"
+    - cron: "0 12 * * *"
     - cron: "0 18 * * *"
   workflow_dispatch:
     inputs:
@@ -24,7 +25,11 @@ on:
         required: false
         type: string
       post_slot:
-        description: "Optional slot: morning or evening"
+        description: "Optional slot: morning, afternoon, or evening"
+        required: false
+        type: string
+      post_type:
+        description: "Optional type: auto, jobs_list, job_spotlight, career_tip"
         required: false
         type: string
 
@@ -58,6 +63,7 @@ jobs:
           TARGET_COUNTRY: ${{ github.event_name == 'workflow_dispatch' && inputs.target_country || '' }}
           POST_LANGUAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.post_language || '' }}
           POST_SLOT: ${{ github.event_name == 'workflow_dispatch' && inputs.post_slot || '' }}
+          POST_TYPE: ${{ github.event_name == 'workflow_dispatch' && inputs.post_type || 'auto' }}
         run: npm run post
 
       - name: Upload generated image
