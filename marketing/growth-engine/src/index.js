@@ -64,19 +64,21 @@ const COUNTRY_PROFILES = {
 };
 
 const ARABIC_OPENERS = [
-  "فرص جديدة وصلت اليوم، والذكي هو من يجهز سيرته ويتقدم بسرعة.",
-  "إذا كنت تبحث عن عمل، لا تضيع وقتك بين الروابط المتفرقة. هذه فرص مختارة لك اليوم.",
-  "وظائف جديدة الآن، ومع CV World تقدر تجهز CV احترافي وتبدأ التقديم بثقة.",
-  "اليوم فيه فرص ممتازة للباحثين عن عمل. جهز سيرتك وخلك من أوائل المتقدمين.",
-  "لا تنتظر الفرصة المثالية. تابع الوظائف الجديدة يوميا وطور سيرتك مع CV World.",
+  "فرص جديدة وصلت اليوم. جهز سيرتك باحتراف وكن من أوائل المتقدمين.",
+  "لا تضيع وقتك بين الروابط المتفرقة. CV World يجمع لك فرص العمل ويساعدك تجهز CV أقوى.",
+  "وظائف جديدة الآن، ومع CV World تقدر تبني سيرة ذاتية احترافية مجانا وتبدأ التقديم بثقة.",
+  "اليوم فيه فرص ممتازة للباحثين عن عمل. راجع التفاصيل، جهز CV واضح، وتقدم بسرعة.",
+  "الفرص لا تنتظر كثيرا. تابع الوظائف الجديدة يوميا وطور سيرتك مع CV World.",
+  "خطوتك القادمة تبدأ من سيرة قوية وفرصة مناسبة. هذه فرص مختارة لك اليوم.",
 ];
 
 const ENGLISH_OPENERS = [
-  "Fresh jobs are live today. Build a stronger CV and apply faster with CV World.",
-  "Looking for your next role? Here are new opportunities worth checking today.",
-  "New openings are moving fast. Prepare your CV and apply with confidence.",
-  "A better job search starts with a better CV. CV World helps you do both.",
+  "Fresh jobs are live today. Build a sharper CV and apply faster with CV World.",
+  "Looking for your next role? These fresh opportunities are worth checking today.",
+  "New openings move fast. Prepare a clear CV and apply with confidence.",
+  "A better job search starts with a better CV. CV World helps you do both for free.",
   "Your next opportunity may already be live. Check today’s fresh jobs on CV World.",
+  "Strong applications start before you click apply. Find the job, improve your CV, and move faster.",
 ];
 
 const BENEFIT_LINES_AR = [
@@ -91,6 +93,36 @@ const BENEFIT_LINES_EN = [
   "✅ Build a professional CV for free",
   "✅ Clean CV templates ready to use",
   "✅ Faster applying with direct links when available",
+];
+
+const CTA_LINES_AR = [
+  "احفظ المنشور وشاركه مع شخص يبحث عن عمل.",
+  "تابع صفحة CV World لتصلك فرص ونصائح مهنية بشكل يومي.",
+  "ابدأ اليوم: وظيفة مناسبة + CV احترافي = فرصة أقوى.",
+  "افتح التطبيق، اختر الوظيفة، وجهز سيرتك قبل التقديم.",
+];
+
+const CTA_LINES_EN = [
+  "Save this post and share it with someone looking for work.",
+  "Follow CV World for fresh jobs and practical career tips.",
+  "Start today: the right role plus a stronger CV gives you a better chance.",
+  "Open the app, choose the role, and prepare your CV before applying.",
+];
+
+const GROWTH_HASHTAGS_AR = [
+  "#وظائف_الخليج",
+  "#وظائف_اليوم",
+  "#ابحث_عن_عمل",
+  "#توظيف",
+  "#بناء_السيرة_الذاتية",
+];
+
+const GROWTH_HASHTAGS_EN = [
+  "#GulfJobs",
+  "#MENAJobs",
+  "#CareerGrowth",
+  "#FreeCVBuilder",
+  "#JobSeekers",
 ];
 
 const CAREER_TIPS_AR = [
@@ -341,6 +373,19 @@ function uniqueHashtags(tags) {
   return [...new Set(tags)].slice(0, 8).join(" ");
 }
 
+function conversionLine(language, seed) {
+  return pick(language === "en" ? CTA_LINES_EN : CTA_LINES_AR, `${seed}-cta`);
+}
+
+function growthHashtags({ profile, language, extra = [] }) {
+  return uniqueHashtags([
+    ...profile.hashtags,
+    ...extra,
+    ...(language === "en" ? GROWTH_HASHTAGS_EN : GROWTH_HASHTAGS_AR),
+    "#CVWorld",
+  ]);
+}
+
 function composePost({ jobs, country, language, slot }) {
   const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
   const seed = `${country}-${language}-${slot}-${new Date().toISOString().slice(0, 10)}`;
@@ -353,13 +398,11 @@ function composePost({ jobs, country, language, slot }) {
     const jobsText = selectedJobs.map((job, index) =>
       `${index + 1}. ${job.title} - ${job.company}${job.location ? ` (${job.location})` : ""}`,
     ).join("\n");
-    const hashtags = uniqueHashtags([
-      ...profile.hashtags,
-      "#CVWorld",
-      "#ResumeBuilder",
-      "#JobSearch",
-      "#Hiring",
-    ]);
+    const hashtags = growthHashtags({
+      profile,
+      language,
+      extra: ["#ResumeBuilder", "#JobSearch", "#Hiring"],
+    });
 
     return {
       kind: "jobs_list",
@@ -376,6 +419,7 @@ function composePost({ jobs, country, language, slot }) {
         direct ? `${direct} of today’s roles include direct apply options.` : "Open CV World to check the latest active opportunities.",
         "",
         ...BENEFIT_LINES_EN.slice(0, 3),
+        conversionLine(language, seed),
         "",
         `Start here: ${CONFIG.appLink}`,
         "",
@@ -390,13 +434,11 @@ function composePost({ jobs, country, language, slot }) {
   const jobsText = selectedJobs.map((job, index) =>
     `${index + 1}. ${job.title} - ${job.company}${job.location ? ` (${job.location})` : ""}`,
   ).join("\n");
-  const hashtags = uniqueHashtags([
-    ...profile.hashtags,
-    "#CVWorld",
-    "#سيرة_ذاتية",
-    "#وظائف",
-    "#فرص_عمل",
-  ]);
+  const hashtags = growthHashtags({
+    profile,
+    language,
+    extra: ["#سيرة_ذاتية", "#وظائف", "#فرص_عمل"],
+  });
 
   return {
     kind: "jobs_list",
@@ -413,6 +455,7 @@ function composePost({ jobs, country, language, slot }) {
       direct ? `${direct} من فرص اليوم فيها تقديم مباشر أو رابط تقديم واضح.` : "افتح CV World وشاهد أحدث الوظائف المتاحة.",
       "",
       ...BENEFIT_LINES_AR.slice(0, 3),
+      conversionLine(language, seed),
       "",
       `ابدأ من هنا: ${CONFIG.appLink}`,
       "",
@@ -428,13 +471,12 @@ function composeJobSpotlight({ job, country, language }) {
   const location = job.location ? ` - ${job.location}` : "";
 
   if (language === "en") {
-    const hashtags = uniqueHashtags([
-      ...profile.hashtags,
-      "#CVWorld",
-      "#NowHiring",
-      "#CareerOpportunity",
-      "#ResumeBuilder",
-    ]);
+    const seed = `${country}-${language}-${job.id || job.title}-spotlight`;
+    const hashtags = growthHashtags({
+      profile,
+      language,
+      extra: ["#NowHiring", "#CareerOpportunity", "#ResumeBuilder"],
+    });
 
     return {
       kind: "job_spotlight",
@@ -451,6 +493,7 @@ function composeJobSpotlight({ job, country, language }) {
         "✅ Prepare a professional CV",
         "✅ Apply faster when direct links are available",
         "✅ Keep checking fresh jobs daily",
+        conversionLine(language, seed),
         "",
         `Open CV World: ${CONFIG.appLink}`,
         "",
@@ -461,13 +504,12 @@ function composeJobSpotlight({ job, country, language }) {
     };
   }
 
-  const hashtags = uniqueHashtags([
-    ...profile.hashtags,
-    "#CVWorld",
-    "#وظائف",
-    "#فرص_عمل",
-    "#سيرة_ذاتية",
-  ]);
+  const seed = `${country}-${language}-${job.id || job.title}-spotlight`;
+  const hashtags = growthHashtags({
+    profile,
+    language,
+    extra: ["#وظائف", "#فرص_عمل", "#سيرة_ذاتية"],
+  });
 
   return {
     kind: "job_spotlight",
@@ -484,6 +526,7 @@ function composeJobSpotlight({ job, country, language }) {
       "✅ CV مرتب وواضح",
       "✅ كلمات مناسبة لنفس مجال الوظيفة",
       "✅ متابعة يومية للوظائف الجديدة",
+      conversionLine(language, seed),
       "",
       `ابدأ من هنا: ${CONFIG.appLink}`,
       "",
@@ -500,13 +543,11 @@ function composeCareerTip({ country, language, slot }) {
   const tip = pick(language === "en" ? CAREER_TIPS_EN : CAREER_TIPS_AR, seed);
 
   if (language === "en") {
-    const hashtags = uniqueHashtags([
-      ...profile.hashtags,
-      "#CVWorld",
-      "#InterviewTips",
-      "#GulfJobs",
-      "#CareerAdvice",
-    ]);
+    const hashtags = growthHashtags({
+      profile,
+      language,
+      extra: ["#InterviewTips", "#CareerAdvice", "#JobInterview"],
+    });
 
     return {
       kind: "career_tip",
@@ -521,6 +562,7 @@ function composeCareerTip({ country, language, slot }) {
         ...tip.tips.map((line) => `✅ ${line}`),
         "",
         tip.cta,
+        conversionLine(language, seed),
         "",
         `Start here: ${CONFIG.appLink}`,
         "",
@@ -532,13 +574,11 @@ function composeCareerTip({ country, language, slot }) {
     };
   }
 
-  const hashtags = uniqueHashtags([
-    ...profile.hashtags,
-    "#CVWorld",
-    "#نصائح_مهنية",
-    "#مقابلة_عمل",
-    "#سيرة_ذاتية",
-  ]);
+  const hashtags = growthHashtags({
+    profile,
+    language,
+    extra: ["#نصائح_مهنية", "#مقابلة_عمل", "#سيرة_ذاتية"],
+  });
 
   return {
     kind: "career_tip",
@@ -550,11 +590,12 @@ function composeCareerTip({ country, language, slot }) {
       "",
       tip.hook,
       "",
-      ...tip.tips.map((line) => `✅ ${line}`),
-      "",
-      tip.cta,
-      "",
-      `ابدأ من هنا: ${CONFIG.appLink}`,
+    ...tip.tips.map((line) => `✅ ${line}`),
+    "",
+    tip.cta,
+    conversionLine(language, seed),
+    "",
+    `ابدأ من هنا: ${CONFIG.appLink}`,
       "",
       hashtags,
     ].join("\n"),
