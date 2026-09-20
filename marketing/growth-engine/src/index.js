@@ -742,11 +742,17 @@ async function publishPhoto({ message, imagePath }) {
 }
 
 async function logPost(db, payload) {
-  await db.collection("growth_engine_posts").add({
-    ...payload,
-    createdAtMs: Date.now(),
-    createdAt: FieldValue.serverTimestamp(),
-  });
+  try {
+    await db.collection("growth_engine_posts").add({
+      ...payload,
+      createdAtMs: Date.now(),
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return true;
+  } catch (error) {
+    console.warn(`Post published, but Firestore logging failed: ${error.message}`);
+    return false;
+  }
 }
 
 async function main() {
@@ -791,7 +797,7 @@ async function main() {
   }
 
   const facebook = await publishPhoto({ message: post.message, imagePath });
-  await logPost(db, {
+  const logged = await logPost(db, {
     kind: post.kind,
     slot,
     country,
@@ -802,7 +808,7 @@ async function main() {
     imageFile: path.basename(imagePath),
   });
 
-  console.log(JSON.stringify({ success: true, facebook, ...dryRunPayload }, null, 2));
+  console.log(JSON.stringify({ success: true, logged, facebook, ...dryRunPayload }, null, 2));
 }
 
 main()
