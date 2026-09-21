@@ -848,6 +848,26 @@ async function publishPhoto({ message, imagePath }) {
   return data;
 }
 
+async function publishFeed({ message }) {
+  if (!CONFIG.pageId || !CONFIG.pageToken) {
+    throw new Error("Missing FACEBOOK_PAGE_ID or FACEBOOK_PAGE_ACCESS_TOKEN.");
+  }
+
+  const response = await fetch(`https://graph.facebook.com/v21.0/${CONFIG.pageId}/feed`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      access_token: CONFIG.pageToken,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Facebook feed publish failed: ${JSON.stringify(data)}`);
+  }
+  return data;
+}
+
 async function main() {
   const db = initFirebase();
   const slot = process.env.POST_SLOT || currentSlot();
@@ -888,8 +908,20 @@ async function main() {
     return;
   }
 
-  const facebook = await publishPhoto({ message: post.message, imagePath });
-  console.log(JSON.stringify({ success: true, facebook, ...dryRunPayload }, null, 2));
+  try {
+    const facebook = await publishPhoto({ message: post.message, imagePath });
+    console.log(JSON.stringify({ success: true, facebook, publishMode: "photo", ...dryRunPayload }, null, 2));
+  } catch (photoError) {
+    console.warn(`Facebook photo publish failed, trying text feed fallback: ${photoError.message}`);
+    const facebook = await publishFeed({ message: post.message });
+    console.log(JSON.stringify({
+      success: true,
+      facebook,
+      publishMode: "feed_fallback",
+      photoPublishError: photoError.message,
+      ...dryRunPayload,
+    }, null, 2));
+  }
 }
 
 main()
