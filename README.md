@@ -6,13 +6,13 @@ External GitHub Actions growth engine for CV World Facebook posts.
 
 The engine uses two image modes:
 
-- `auto` (default): generate a premium AI campaign image when `OPENAI_API_KEY` exists, otherwise fall back to the built-in SVG renderer.
+- `auto` (default): generate a premium AI campaign image when `GEMINI_API_KEY` exists, otherwise fall back to the built-in SVG renderer.
 - `svg`: always use the local SVG renderer.
-- `ai`: require AI image generation and fail if `OPENAI_API_KEY` is missing or image generation fails.
+- `ai`: require AI image generation and fail if `GEMINI_API_KEY` is missing or image generation fails.
 
 Add this GitHub Actions secret to enable premium AI visuals:
 
-- `OPENAI_API_KEY`
+- `GEMINI_API_KEY`
 
 Optional repository variable:
 
