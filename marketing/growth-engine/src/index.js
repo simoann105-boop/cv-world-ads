@@ -18,6 +18,7 @@ const CONFIG = {
   pageId: process.env.FACEBOOK_PAGE_ID || "",
   pageToken: process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "",
   maxJobs: Number(process.env.MAX_JOBS_PER_POST || 5),
+  hashtagLimit: Number(process.env.HASHTAG_LIMIT || 34),
   contentType: process.env.POST_TYPE || "auto",
   brandAssets: {
     logo: process.env.CVWORLD_LOGO_PATH || path.resolve(ROOT, "marketing", "growth-engine", "assets", "app_icon.png"),
@@ -124,6 +125,29 @@ const GROWTH_HASHTAGS_EN = [
   "#CareerGrowth",
   "#FreeCVBuilder",
   "#JobSeekers",
+];
+
+const QATAR_EXPAT_HASHTAGS = [
+  "#ExpatsInQatar",
+  "#QatarExpats",
+  "#DohaExpats",
+  "#IndiansInQatar",
+  "#IndianCommunityQatar",
+  "#IndiaQatar",
+  "#BangladeshisInQatar",
+  "#BangladeshCommunityQatar",
+  "#NepalisInQatar",
+  "#NepaliCommunityQatar",
+  "#FilipinosInQatar",
+  "#FilipinoCommunityQatar",
+  "#PinoyQatar",
+  "#SriLankansInQatar",
+  "#KenyansInQatar",
+  "#UgandansInQatar",
+  "#مغاربة_قطر",
+  "#المغاربة_في_قطر",
+  "#الجالية_المغربية_في_قطر",
+  "#العرب_في_قطر",
 ];
 
 const CAREER_TIPS_AR = [
@@ -362,8 +386,8 @@ function choosePostKind({ slot, country, language }) {
   return deterministicIndex(seed, 5) < 3 ? "career_tip" : "job_spotlight";
 }
 
-function uniqueHashtags(tags) {
-  return [...new Set(tags)].slice(0, 8).join(" ");
+function uniqueHashtags(tags, limit = CONFIG.hashtagLimit) {
+  return [...new Set(tags.filter(Boolean))].slice(0, limit).join(" ");
 }
 
 function conversionLine(language, seed) {
@@ -372,18 +396,26 @@ function conversionLine(language, seed) {
 
 function growthHashtags({ profile, language, extra = [] }) {
   return uniqueHashtags([
+    "#CVWorld",
     ...profile.hashtags,
     ...extra,
     ...(language === "en" ? GROWTH_HASHTAGS_EN : GROWTH_HASHTAGS_AR),
-    "#CVWorld",
+    ...QATAR_EXPAT_HASHTAGS,
   ]);
+}
+
+function liveJobsLine({ countryJobs, allJobs, language }) {
+  if (language === "en") {
+    return `📌 Live now: ${countryJobs.length} active jobs in this country and ${allJobs.length} active jobs across CV World.`;
+  }
+  return `📌 المتاح الآن: ${countryJobs.length} وظيفة نشطة في هذه الدولة و ${allJobs.length} وظيفة نشطة داخل CV World.`;
 }
 
 function composePost({ jobs, country, language, slot }) {
   const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
   const seed = `${country}-${language}-${slot}-${new Date().toISOString().slice(0, 10)}`;
   const selectedJobs = jobs.filter((job) => job.country === country).slice(0, CONFIG.maxJobs);
-  const total = selectedJobs.length;
+  const countryJobs = jobs.filter((job) => job.country === country);
   const direct = selectedJobs.filter((job) => job.hasDirectApply).length;
 
   if (language === "en") {
@@ -406,6 +438,8 @@ function composePost({ jobs, country, language, slot }) {
         `${profile.flag} New jobs in ${profile.en}`,
         "",
         opener,
+        "",
+        liveJobsLine({ countryJobs, allJobs: jobs, language }),
         "",
         jobsText,
         "",
@@ -442,6 +476,8 @@ function composePost({ jobs, country, language, slot }) {
       `${profile.flag} وظائف جديدة في ${profile.ar}`,
       "",
       opener,
+      "",
+      liveJobsLine({ countryJobs, allJobs: jobs, language }),
       "",
       jobsText,
       "",
@@ -830,6 +866,8 @@ async function publishPhoto({ message, imagePath }) {
     throw new Error("Missing FACEBOOK_PAGE_ID or FACEBOOK_PAGE_ACCESS_TOKEN.");
   }
 
+  await verifyFacebookPageAccess();
+
   const form = new FormData();
   const image = await fs.readFile(imagePath);
   form.append("message", message);
@@ -843,7 +881,7 @@ async function publishPhoto({ message, imagePath }) {
   });
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(`Facebook publish failed: ${JSON.stringify(data)}`);
+    throw new Error(`Facebook photo publish failed: ${facebookErrorMessage(data)}`);
   }
   return data;
 }
@@ -863,8 +901,40 @@ async function publishFeed({ message }) {
   });
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(`Facebook feed publish failed: ${JSON.stringify(data)}`);
+    throw new Error(`Facebook feed publish failed: ${facebookErrorMessage(data)}`);
   }
+  return data;
+}
+
+function facebookErrorMessage(data = {}) {
+  const error = data.error || {};
+  const parts = [
+    error.message,
+    error.type ? `type=${error.type}` : "",
+    error.code ? `code=${error.code}` : "",
+    error.error_subcode ? `subcode=${error.error_subcode}` : "",
+    error.fbtrace_id ? `fbtrace_id=${error.fbtrace_id}` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" | ") : JSON.stringify(data);
+}
+
+async function verifyFacebookPageAccess() {
+  const url = new URL(`https://graph.facebook.com/v21.0/${CONFIG.pageId}`);
+  url.searchParams.set("fields", "id,name");
+  url.searchParams.set("access_token", CONFIG.pageToken);
+
+  const response = await fetch(url);
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(
+      `Facebook token check failed before publishing: ${facebookErrorMessage(data)}. ` +
+      "Generate a fresh Page access token after enabling 2FA, then update GitHub secret FACEBOOK_PAGE_ACCESS_TOKEN.",
+    );
+  }
+  if (data.id !== CONFIG.pageId) {
+    throw new Error(`Facebook token points to page ${data.id}, but FACEBOOK_PAGE_ID is ${CONFIG.pageId}.`);
+  }
+  console.log(`Facebook page token check OK: ${data.name || CONFIG.pageId} (${data.id}).`);
   return data;
 }
 
