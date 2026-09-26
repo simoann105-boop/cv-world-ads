@@ -20,7 +20,7 @@ const CONFIG = {
   maxJobs: Number(process.env.MAX_JOBS_PER_POST || 5),
   hashtagLimit: Number(process.env.HASHTAG_LIMIT || 34),
   contentType: process.env.POST_TYPE || "auto",
-  openaiApiKey: process.env.OPENAI_API_KEY || "",
+  openaiApiKey: process.env.GEMINI_API_KEY || "",
   imageMode: process.env.IMAGE_MODE || "auto",
   imageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
   brandAssets: {
