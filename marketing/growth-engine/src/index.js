@@ -20,6 +20,9 @@ const CONFIG = {
   maxJobs: Number(process.env.MAX_JOBS_PER_POST || 5),
   hashtagLimit: Number(process.env.HASHTAG_LIMIT || 34),
   contentType: process.env.POST_TYPE || "auto",
+  openaiApiKey: process.env.OPENAI_API_KEY || "",
+  imageMode: process.env.IMAGE_MODE || "auto",
+  imageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
   brandAssets: {
     logo: process.env.CVWORLD_LOGO_PATH || path.resolve(ROOT, "marketing", "growth-engine", "assets", "app_icon.png"),
     cvVisual: process.env.CVWORLD_CV_VISUAL_PATH || path.resolve(ROOT, "marketing", "growth-engine", "assets", "cv_icon.png"),
@@ -713,6 +716,178 @@ async function saveSocialImage(svg, output) {
     .toFile(output);
 }
 
+function aiImagesEnabled() {
+  return CONFIG.imageMode !== "svg" && !!CONFIG.openaiApiKey;
+}
+
+function postVisualConcept({ post, country, language }) {
+  const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
+  const jobs = post.selectedJobs || [];
+  const topJob = jobs[0];
+  const jobContext = topJob
+    ? `${topJob.title} at ${topJob.company}${topJob.location ? ` in ${topJob.location}` : ""}`
+    : `career advice for job seekers in ${profile.en}`;
+
+  if (post.kind === "career_tip") {
+    return language === "ar"
+      ? `a premium career coaching visual for Gulf job seekers, inspired by ${post.headline}`
+      : `a premium career coaching visual for job seekers, inspired by ${post.headline}`;
+  }
+
+  if (post.kind === "job_spotlight") {
+    return `a premium recruitment advertising visual for ${jobContext}, professional Gulf job-market style`;
+  }
+
+  return `a premium recruitment advertising visual for fresh jobs in ${profile.en}, featuring a professional job seeker preparing a CV`;
+}
+
+function buildAiBackdropPrompt({ post, country, language }) {
+  const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
+  const concept = postVisualConcept({ post, country, language });
+  return [
+    "Create a high-end photorealistic social media advertising background for CV World.",
+    `Concept: ${concept}.`,
+    `Market context: ${profile.en}, Gulf / international job search audience.`,
+    "Scene: modern premium office at golden hour, confident job seeker, laptop, clean CV paper, subtle city skyline, recruitment/application screen glow.",
+    "Style: cinematic, realistic, sharp, premium commercial campaign, strong depth, natural hands, trustworthy, aspirational, not cartoon, not generic stock.",
+    "Composition: square/safe centered scene with darker left-side negative space and cinematic right-side subject area, enough clean room for later text overlays.",
+    "Brand mood: navy, gold, white, and controlled red accents. Professional, energetic, not cluttered.",
+    "Important: generate background only. Do not include readable text, logos, QR codes, watermarks, phone numbers, fake ratings, or social-media icons.",
+  ].join("\n");
+}
+
+async function generateAiBackdrop({ post, country, language }) {
+  const response = await fetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${CONFIG.openaiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: CONFIG.imageModel,
+      prompt: buildAiBackdropPrompt({ post, country, language }),
+      size: "1024x1024",
+      quality: "high",
+      n: 1,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    const message = data.error?.message || JSON.stringify(data);
+    throw new Error(`OpenAI image generation failed: ${message}`);
+  }
+
+  const base64 = data.data?.[0]?.b64_json;
+  if (!base64) {
+    throw new Error("OpenAI image generation did not return b64_json.");
+  }
+  return Buffer.from(base64, "base64");
+}
+
+function featureStrip({ isArabic }) {
+  const features = isArabic
+    ? [
+      ["ATS", "متوافق مع ATS"],
+      ["AI", "منشئ CV بالذكاء"],
+      ["CV", "مراجعة السيرة"],
+      ["JOB", "وظائف حية"],
+    ]
+    : [
+      ["ATS", "ATS-Friendly"],
+      ["AI", "AI CV Builder"],
+      ["CV", "Resume Review"],
+      ["JOB", "Live Jobs"],
+    ];
+
+  return features.map(([icon, label], index) => {
+    const x = 118 + index * 262;
+    return `
+      <g>
+        <rect x="${x}" y="1252" width="208" height="118" rx="28" fill="#06111F" opacity="0.84" stroke="#FFFFFF" stroke-opacity="0.18"/>
+        <text x="${x + 104}" y="1302" text-anchor="middle" font-size="28" font-weight="950" fill="#F8D977">${icon}</text>
+        <text x="${x + 104}" y="1344" text-anchor="middle" font-size="23" font-weight="850" fill="#FFFFFF">${escapeXml(label)}</text>
+      </g>
+    `;
+  }).join("");
+}
+
+function aiOverlaySvg({ post, country, language, logo }) {
+  const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
+  const isArabic = language === "ar";
+  const anchor = isArabic ? "end" : "start";
+  const textX = isArabic ? 1080 : 92;
+  const logoX = isArabic ? 982 : 72;
+  const brandTextX = isArabic ? 948 : 202;
+  const headline = post.kind === "career_tip"
+    ? post.headline
+    : (isArabic ? "وظائف جديدة وفرص أقوى" : "Fresh Jobs. Stronger CV.");
+  const accent = post.kind === "career_tip"
+    ? (isArabic ? "نصيحة اليوم" : "CAREER TIP")
+    : (isArabic ? "قدّم بثقة" : "APPLY WITH CONFIDENCE");
+  const subheadline = post.kind === "career_tip"
+    ? post.subheadline
+    : (isArabic
+      ? `وظائف حية في ${profile.ar} مع CV احترافي مجاني`
+      : `Live jobs in ${profile.en} plus a free AI-powered CV builder`);
+  const headlineLines = wrapText(headline, isArabic ? 19 : 22, 3);
+  const subLines = wrapText(subheadline, isArabic ? 43 : 48, 3);
+
+  return `
+  <svg width="1200" height="1500" viewBox="0 0 1200 1500" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="leftShade" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#020713" stop-opacity="0.94"/>
+        <stop offset="52%" stop-color="#07111F" stop-opacity="0.74"/>
+        <stop offset="100%" stop-color="#07111F" stop-opacity="0.08"/>
+      </linearGradient>
+      <linearGradient id="bottomShade" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#020713" stop-opacity="0"/>
+        <stop offset="100%" stop-color="#020713" stop-opacity="0.95"/>
+      </linearGradient>
+      <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+      </filter>
+    </defs>
+    <rect width="1200" height="1500" fill="url(#leftShade)"/>
+    <rect width="1200" height="1500" fill="url(#bottomShade)"/>
+    <image href="${logo}" x="${logoX}" y="70" width="106" height="106" filter="url(#shadow)"/>
+    <text x="${brandTextX}" y="114" text-anchor="${anchor}" font-size="48" font-weight="950" fill="#F8D977">CV WORLD</text>
+    <text x="${brandTextX}" y="154" text-anchor="${anchor}" font-size="22" font-weight="850" fill="#FFFFFF" letter-spacing="4">YOUR FUTURE MATTERS</text>
+    ${headlineLines.map((line, index) =>
+      `<text x="${textX}" y="${314 + index * 82}" text-anchor="${anchor}" font-size="70" font-weight="950" fill="#FFFFFF" filter="url(#shadow)">${escapeXml(line)}</text>`,
+    ).join("")}
+    <path d="${isArabic ? "M1092 566 C900 538 724 574 558 548" : "M86 566 C278 538 454 574 620 548"}" stroke="#ED123F" stroke-width="74" stroke-linecap="round" opacity="0.94"/>
+    <text x="${textX}" y="584" text-anchor="${anchor}" font-size="52" font-weight="950" fill="#FFFFFF">${escapeXml(accent)}</text>
+    ${subLines.map((line, index) =>
+      `<text x="${textX}" y="${698 + index * 43}" text-anchor="${anchor}" font-size="34" font-weight="800" fill="#FFFFFF">${escapeXml(line)}</text>`,
+    ).join("")}
+    <rect x="86" y="1068" width="1028" height="112" rx="36" fill="#FFFFFF" opacity="0.94" filter="url(#shadow)"/>
+    <text x="600" y="1139" text-anchor="middle" font-size="34" font-weight="950" fill="#06111F">${isArabic ? "أنشئ CV مجاني بالذكاء الصناعي وابدأ التقديم" : "Create a free AI-powered CV and start applying"}</text>
+    ${featureStrip({ isArabic })}
+    <rect x="270" y="1404" width="660" height="70" rx="35" fill="#ED123F" filter="url(#shadow)"/>
+    <text x="600" y="1451" text-anchor="middle" font-size="31" font-weight="950" fill="#FFFFFF">${isArabic ? "ابدأ من CV World" : "CREATE YOUR CV FREE"}</text>
+  </svg>`;
+}
+
+async function renderAiCampaignImage({ post, country, language }) {
+  await fs.mkdir(OUTPUT_DIR, { recursive: true });
+  const logo = await logoDataUri();
+  const backdrop = await generateAiBackdrop({ post, country, language });
+  const overlay = aiOverlaySvg({ post, country, language, logo });
+  const hash = crypto.createHash("sha1").update(`ai-${post.message}-${Date.now()}`).digest("hex").slice(0, 10);
+  const output = path.join(OUTPUT_DIR, `cvworld-ai-campaign-${hash}.png`);
+
+  await sharp(backdrop)
+    .resize(1200, 1500, { fit: "cover" })
+    .modulate({ saturation: 1.05, brightness: 0.9 })
+    .composite([{ input: Buffer.from(overlay), top: 0, left: 0 }])
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toFile(output);
+
+  return output;
+}
+
 function brandHeader({ logo, isArabic, label }) {
   const logoX = isArabic ? 992 : 92;
   const textX = isArabic ? 960 : 244;
@@ -791,6 +966,21 @@ async function renderTipImage({ post, country, language }) {
 }
 
 async function renderImage({ post, country, language }) {
+  if (aiImagesEnabled()) {
+    try {
+      const imagePath = await renderAiCampaignImage({ post, country, language });
+      console.log(`Generated AI campaign image: ${imagePath}`);
+      return imagePath;
+    } catch (error) {
+      if (CONFIG.imageMode === "ai") {
+        throw error;
+      }
+      console.warn(`AI campaign image failed, falling back to SVG renderer: ${error.message}`);
+    }
+  } else if (CONFIG.imageMode === "ai") {
+    throw new Error("IMAGE_MODE is ai, but OPENAI_API_KEY is missing.");
+  }
+
   if (post.kind === "career_tip") {
     return renderTipImage({ post, country, language });
   }
