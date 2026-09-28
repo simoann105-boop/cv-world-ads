@@ -938,6 +938,160 @@ async function renderAiCampaignImage({ post, country, language }) {
   return output;
 }
 
+function localBackdropSvg({ post, country, language }) {
+  const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
+  const isArabic = language === "ar";
+  const isTip = post.kind === "career_tip";
+  const isSpotlight = post.kind === "job_spotlight";
+  const accent = isTip ? "#16A3B8" : isSpotlight ? "#D8B764" : "#ED123F";
+  const warm = isTip ? "#72E6F2" : "#F8D977";
+  const label = isTip
+    ? (isArabic ? "Career coaching" : "Interview preparation")
+    : (isArabic ? "Live hiring desk" : "Live hiring desk");
+  const secondary = isSpotlight
+    ? (post.selectedJobs?.[0]?.company || profile.en)
+    : `${profile.en} job market`;
+
+  return `
+  <svg width="1400" height="1400" viewBox="0 0 1400 1400" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#06111F"/>
+        <stop offset="42%" stop-color="#123B61"/>
+        <stop offset="100%" stop-color="#0A6E78"/>
+      </linearGradient>
+      <linearGradient id="windowGlow" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${warm}" stop-opacity="0.95"/>
+        <stop offset="48%" stop-color="#FFFFFF" stop-opacity="0.36"/>
+        <stop offset="100%" stop-color="#1EC7D7" stop-opacity="0.08"/>
+      </linearGradient>
+      <linearGradient id="desk" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#07101E"/>
+        <stop offset="55%" stop-color="#132F4D"/>
+        <stop offset="100%" stop-color="#06101B"/>
+      </linearGradient>
+      <radialGradient id="keyLight" cx="73%" cy="22%" r="56%">
+        <stop offset="0%" stop-color="${warm}" stop-opacity="0.62"/>
+        <stop offset="100%" stop-color="${warm}" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="screenLight" cx="70%" cy="66%" r="34%">
+        <stop offset="0%" stop-color="#BDF6FF" stop-opacity="0.58"/>
+        <stop offset="100%" stop-color="#BDF6FF" stop-opacity="0"/>
+      </radialGradient>
+      <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="24" stdDeviation="22" flood-color="#000000" flood-opacity="0.42"/>
+      </filter>
+      <filter id="grain" x="0" y="0" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" seed="8"/>
+        <feColorMatrix type="saturate" values="0"/>
+        <feComponentTransfer>
+          <feFuncA type="table" tableValues="0 0.08"/>
+        </feComponentTransfer>
+      </filter>
+      <filter id="blurPanel">
+        <feGaussianBlur stdDeviation="2.2"/>
+      </filter>
+    </defs>
+
+    <rect width="1400" height="1400" fill="url(#wall)"/>
+    <rect width="1400" height="1400" fill="url(#keyLight)"/>
+    <rect width="1400" height="1400" fill="url(#screenLight)"/>
+
+    <g opacity="0.24" filter="url(#blurPanel)">
+      <rect x="760" y="88" width="118" height="620" fill="url(#windowGlow)" rx="10"/>
+      <rect x="904" y="58" width="168" height="650" fill="url(#windowGlow)" rx="10"/>
+      <rect x="1102" y="130" width="116" height="578" fill="url(#windowGlow)" rx="10"/>
+      <rect x="1250" y="210" width="72" height="498" fill="url(#windowGlow)" rx="10"/>
+    </g>
+
+    <g opacity="0.22">
+      <path d="M704 622 L744 622 L744 382 L704 382 Z" fill="#FFFFFF"/>
+      <path d="M760 622 L804 622 L804 304 L760 304 Z" fill="#FFFFFF"/>
+      <path d="M820 622 L872 622 L872 420 L820 420 Z" fill="#FFFFFF"/>
+      <path d="M888 622 L944 622 L944 264 L888 264 Z" fill="#FFFFFF"/>
+      <path d="M970 622 L1012 622 L1012 354 L970 354 Z" fill="#FFFFFF"/>
+      <path d="M1030 622 L1090 622 L1090 452 L1030 452 Z" fill="#FFFFFF"/>
+      <path d="M1110 622 L1160 622 L1160 330 L1110 330 Z" fill="#FFFFFF"/>
+      <path d="M1182 622 L1240 622 L1240 430 L1182 430 Z" fill="#FFFFFF"/>
+      <path d="M1260 622 L1306 622 L1306 280 L1260 280 Z" fill="#FFFFFF"/>
+    </g>
+
+    <g filter="url(#softShadow)">
+      <ellipse cx="958" cy="680" rx="116" ry="134" fill="#101827"/>
+      <circle cx="958" cy="470" r="92" fill="#CDA889"/>
+      <path d="M856 438 C874 330 1018 318 1068 412 C1088 452 1080 510 1058 552 C1030 476 940 462 856 438Z" fill="#111827"/>
+      <path d="M842 820 C866 690 1052 676 1092 818 L1126 1052 L804 1052 Z" fill="#111827"/>
+      <path d="M864 820 C908 874 1014 878 1070 820 L1092 1050 L842 1050 Z" fill="#1E3A5F"/>
+    </g>
+
+    <g filter="url(#softShadow)">
+      <rect x="616" y="786" width="432" height="258" rx="24" fill="#DDEAF4"/>
+      <rect x="646" y="820" width="372" height="178" rx="16" fill="#06111F"/>
+      <rect x="686" y="856" width="222" height="18" rx="9" fill="${accent}"/>
+      <rect x="686" y="896" width="292" height="14" rx="7" fill="#D8EFFF" opacity="0.8"/>
+      <rect x="686" y="928" width="256" height="14" rx="7" fill="#D8EFFF" opacity="0.58"/>
+      <rect x="760" y="1044" width="212" height="22" rx="11" fill="#A9B8C6"/>
+      <rect x="682" y="1070" width="374" height="24" rx="12" fill="#EAF3FA"/>
+    </g>
+
+    <g filter="url(#softShadow)">
+      <rect x="930" y="760" width="226" height="300" rx="18" fill="#F8FAFC"/>
+      <rect x="964" y="810" width="68" height="68" rx="34" fill="#DDE6EF"/>
+      <rect x="1050" y="816" width="70" height="16" rx="8" fill="#0B1220"/>
+      <rect x="1050" y="850" width="58" height="12" rx="6" fill="#9AA8B6"/>
+      <rect x="964" y="918" width="154" height="14" rx="7" fill="#0B1220" opacity="0.82"/>
+      <rect x="964" y="958" width="152" height="12" rx="6" fill="#6B7A90" opacity="0.72"/>
+      <rect x="964" y="990" width="128" height="12" rx="6" fill="#6B7A90" opacity="0.55"/>
+      <rect x="964" y="1032" width="104" height="20" rx="10" fill="${accent}"/>
+    </g>
+
+    <g filter="url(#softShadow)" opacity="0.96">
+      <rect x="72" y="964" width="1256" height="260" rx="44" fill="url(#desk)"/>
+      <ellipse cx="742" cy="994" rx="462" ry="52" fill="#FFFFFF" opacity="0.08"/>
+    </g>
+
+    <g opacity="0.92" filter="url(#softShadow)">
+      <rect x="150" y="720" width="290" height="154" rx="26" fill="#FFFFFF" opacity="0.9"/>
+      <text x="190" y="775" font-size="28" font-weight="950" fill="#06111F">${escapeXml(label)}</text>
+      <text x="190" y="820" font-size="23" font-weight="850" fill="#35506D">${escapeXml(secondary)}</text>
+      <rect x="190" y="844" width="132" height="16" rx="8" fill="${accent}"/>
+    </g>
+
+    <g opacity="0.42">
+      <circle cx="1168" cy="210" r="86" fill="${warm}"/>
+      <circle cx="1202" cy="194" r="122" fill="${warm}" opacity="0.22"/>
+      <path d="M58 1066 C292 970 450 1098 676 1010 C876 932 1024 964 1342 846 L1400 1400 L0 1400 Z" fill="#010712" opacity="0.3"/>
+    </g>
+
+    <rect width="1400" height="1400" filter="url(#grain)" opacity="0.8"/>
+  </svg>`;
+}
+
+async function generateLocalBackdrop({ post, country, language }) {
+  const svg = localBackdropSvg({ post, country, language });
+  return sharp(Buffer.from(svg), { density: 180 })
+    .resize(1200, 1500, { fit: "cover" })
+    .png()
+    .toBuffer();
+}
+
+async function renderLocalCampaignImage({ post, country, language }) {
+  await fs.mkdir(OUTPUT_DIR, { recursive: true });
+  const logo = await logoDataUri();
+  const backdrop = await generateLocalBackdrop({ post, country, language });
+  const overlay = aiOverlaySvg({ post, country, language, logo });
+  const hash = crypto.createHash("sha1").update(`local-premium-${post.message}-${Date.now()}`).digest("hex").slice(0, 10);
+  const output = path.join(OUTPUT_DIR, `cvworld-premium-local-${hash}.png`);
+
+  await sharp(backdrop)
+    .modulate({ saturation: 1.04, brightness: 0.94 })
+    .composite([{ input: Buffer.from(overlay), top: 0, left: 0 }])
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toFile(output);
+
+  return output;
+}
+
 function brandHeader({ logo, isArabic, label }) {
   const logoX = isArabic ? 992 : 92;
   const textX = isArabic ? 960 : 244;
@@ -1031,9 +1185,9 @@ async function renderImage({ post, country, language }) {
     throw new Error("IMAGE_MODE is ai, but GEMINI_API_KEY or OPENAI_API_KEY is missing.");
   }
 
-  if (post.kind === "career_tip") {
-    return renderTipImage({ post, country, language });
-  }
+  const premiumImage = await renderLocalCampaignImage({ post, country, language });
+  console.log(`Generated premium local campaign image: ${premiumImage}`);
+  return premiumImage;
 
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
   const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
