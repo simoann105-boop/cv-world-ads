@@ -21,6 +21,6 @@ Optional fallback secret:
 Optional repository variables:
 
 - `IMAGE_MODE=auto`
-- `GEMINI_IMAGE_MODEL=gemini-3.1-flash-image`
+- `GEMINI_IMAGE_MODEL=gemini-2.5-flash-image`
 
 The AI flow generates a realistic background only, then the engine overlays the CV World logo and exact marketing text itself. This keeps text readable, preserves the real CV World branding, and avoids AI misspellings.
