@@ -20,7 +20,9 @@ const CONFIG = {
   maxJobs: Number(process.env.MAX_JOBS_PER_POST || 5),
   hashtagLimit: Number(process.env.HASHTAG_LIMIT || 34),
   contentType: process.env.POST_TYPE || "auto",
-  openaiApiKey: process.env.GEMINI_API_KEY || "",
+  geminiApiKey: process.env.GEMINI_API_KEY || "",
+  geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image",
+  openaiApiKey: process.env.OPENAI_API_KEY || "",
   imageMode: process.env.IMAGE_MODE || "auto",
   imageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
   brandAssets: {
@@ -717,7 +719,7 @@ async function saveSocialImage(svg, output) {
 }
 
 function aiImagesEnabled() {
-  return CONFIG.imageMode !== "svg" && !!CONFIG.openaiApiKey;
+  return CONFIG.imageMode !== "svg" && (!!CONFIG.geminiApiKey || !!CONFIG.openaiApiKey);
 }
 
 function postVisualConcept({ post, country, language }) {
@@ -783,6 +785,54 @@ async function generateAiBackdrop({ post, country, language }) {
     throw new Error("OpenAI image generation did not return b64_json.");
   }
   return Buffer.from(base64, "base64");
+}
+
+async function generateGeminiBackdrop({ post, country, language }) {
+  const { GoogleGenAI } = await import("@google/genai");
+  const ai = new GoogleGenAI({ apiKey: CONFIG.geminiApiKey });
+  const interaction = await ai.interactions.create({
+    model: CONFIG.geminiImageModel,
+    input: buildAiBackdropPrompt({ post, country, language }),
+    response_format: {
+      type: "image",
+      mime_type: "image/png",
+      aspect_ratio: "1:1",
+      image_size: "1K",
+    },
+  });
+
+  const image = interaction.output_image
+    || interaction.steps?.flatMap((step) => step.content || []).find((block) => block.type === "image");
+  if (!image?.data) {
+    throw new Error("Gemini image generation did not return image data.");
+  }
+  return Buffer.from(image.data, "base64");
+}
+
+async function generateBackdrop({ post, country, language }) {
+  const errors = [];
+
+  if (CONFIG.geminiApiKey) {
+    try {
+      const backdrop = await generateGeminiBackdrop({ post, country, language });
+      console.log(`Generated Gemini campaign backdrop with ${CONFIG.geminiImageModel}.`);
+      return backdrop;
+    } catch (error) {
+      errors.push(`Gemini: ${error.message}`);
+    }
+  }
+
+  if (CONFIG.openaiApiKey) {
+    try {
+      const backdrop = await generateAiBackdrop({ post, country, language });
+      console.log(`Generated OpenAI campaign backdrop with ${CONFIG.imageModel}.`);
+      return backdrop;
+    } catch (error) {
+      errors.push(`OpenAI: ${error.message}`);
+    }
+  }
+
+  throw new Error(errors.length ? errors.join(" | ") : "No AI image provider configured.");
 }
 
 function featureStrip({ isArabic }) {
@@ -873,7 +923,7 @@ function aiOverlaySvg({ post, country, language, logo }) {
 async function renderAiCampaignImage({ post, country, language }) {
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
   const logo = await logoDataUri();
-  const backdrop = await generateAiBackdrop({ post, country, language });
+  const backdrop = await generateBackdrop({ post, country, language });
   const overlay = aiOverlaySvg({ post, country, language, logo });
   const hash = crypto.createHash("sha1").update(`ai-${post.message}-${Date.now()}`).digest("hex").slice(0, 10);
   const output = path.join(OUTPUT_DIR, `cvworld-ai-campaign-${hash}.png`);
@@ -978,7 +1028,7 @@ async function renderImage({ post, country, language }) {
       console.warn(`AI campaign image failed, falling back to SVG renderer: ${error.message}`);
     }
   } else if (CONFIG.imageMode === "ai") {
-    throw new Error("IMAGE_MODE is ai, but OPENAI_API_KEY is missing.");
+    throw new Error("IMAGE_MODE is ai, but GEMINI_API_KEY or OPENAI_API_KEY is missing.");
   }
 
   if (post.kind === "career_tip") {
