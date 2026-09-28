@@ -21,7 +21,7 @@ const CONFIG = {
   hashtagLimit: Number(process.env.HASHTAG_LIMIT || 34),
   contentType: process.env.POST_TYPE || "auto",
   geminiApiKey: process.env.GEMINI_API_KEY || "",
-  geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image",
+  geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image",
   openaiApiKey: process.env.OPENAI_API_KEY || "",
   imageMode: process.env.IMAGE_MODE || "auto",
   imageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
