@@ -196,6 +196,56 @@ const CAREER_TIPS_AR = [
     ],
     cta: "ابدأ من CV World وخلي بحثك منظم.",
   },
+  {
+    headline: "سؤال المقابلة: لماذا تريد هذه الوظيفة؟",
+    hook: "أفضل إجابة لا تكون: أحتاج عمل. اربط خبرتك باحتياج الشركة.",
+    tips: [
+      "اذكر مهارة عندك مطلوبة في الإعلان.",
+      "وضح أنك تفهم طبيعة الوظيفة.",
+      "اختم بأنك تريد إضافة قيمة وليس فقط راتب.",
+    ],
+    cta: "جهز إجابتك قبل المقابلة وراجع CV الخاص بك.",
+  },
+  {
+    headline: "كيف تجاوب عن الراتب المتوقع؟",
+    hook: "لا تعطي رقم عشوائي. أظهر مرونة وثقة ومعرفة بالسوق.",
+    tips: [
+      "قل إنك منفتح حسب المهام والخبرة المطلوبة.",
+      "اذكر نطاقا مناسبا إذا كنت تعرف السوق.",
+      "لا تقلل من قيمتك فقط حتى يتم قبولك.",
+    ],
+    cta: "CV قوي يساعدك تفاوض بثقة أكبر.",
+  },
+  {
+    headline: "لماذا يتم رفض CV رغم أنك مؤهل؟",
+    hook: "أحيانا المشكلة ليست خبرتك، بل طريقة عرض الخبرة داخل السيرة.",
+    tips: [
+      "العنوان الوظيفي غير واضح.",
+      "الإنجازات مكتوبة كمهام عامة.",
+      "لا توجد كلمات قريبة من إعلان الوظيفة.",
+    ],
+    cta: "استخدم CV World لبناء CV أوضح ومتوافق مع ATS.",
+  },
+  {
+    headline: "جواب قوي لسؤال نقاط الضعف",
+    hook: "لا تقل: ليس لدي نقاط ضعف. اختر نقطة حقيقية واذكر كيف تطورها.",
+    tips: [
+      "اختر نقطة لا تكسر متطلبات الوظيفة.",
+      "اذكر ماذا تفعل لتحسينها.",
+      "أعط مثالا قصيرا يثبت التطور.",
+    ],
+    cta: "تدرب على إجابتك قبل المقابلة.",
+  },
+  {
+    headline: "قبل مقابلة العمل بساعة",
+    hook: "آخر ساعة ليست للحفظ، بل لتنظيم أفكارك وتجهيز حضورك.",
+    tips: [
+      "راجع إعلان الوظيفة والكلمات المهمة.",
+      "جهز تعريف قصير عن نفسك.",
+      "افتح CV وتأكد أنك تعرف كل نقطة فيه.",
+    ],
+    cta: "CV World يساعدك تظهر بشكل أكثر احترافية.",
+  },
 ];
 
 const CAREER_TIPS_EN = [
@@ -228,6 +278,56 @@ const CAREER_TIPS_EN = [
       "Show the result clearly.",
     ],
     cta: "Find jobs and prepare with CV World.",
+  },
+  {
+    headline: "Interview question: Why do you want this job?",
+    hook: "The best answer connects your skills to the company’s needs.",
+    tips: [
+      "Mention one skill from the job description.",
+      "Show that you understand the role.",
+      "End with the value you can bring.",
+    ],
+    cta: "Prepare your answer and improve your CV before applying.",
+  },
+  {
+    headline: "How to answer salary expectations",
+    hook: "Do not guess. Sound flexible, informed, and confident.",
+    tips: [
+      "Say you are open based on role and responsibilities.",
+      "Give a realistic range if you know the market.",
+      "Do not undervalue yourself just to be selected.",
+    ],
+    cta: "A stronger CV helps you negotiate with more confidence.",
+  },
+  {
+    headline: "Why your CV gets rejected",
+    hook: "Sometimes the issue is not your experience. It is how your experience is presented.",
+    tips: [
+      "Your job title is unclear.",
+      "Your achievements read like basic tasks.",
+      "Your CV misses keywords from the job post.",
+    ],
+    cta: "Use CV World to build a clearer ATS-friendly CV.",
+  },
+  {
+    headline: "Strong answer for: What is your weakness?",
+    hook: "Do not say you have no weakness. Show self-awareness and improvement.",
+    tips: [
+      "Pick a real weakness that does not break the role.",
+      "Explain what you are doing to improve it.",
+      "Give a short example of progress.",
+    ],
+    cta: "Practice before the interview, not during it.",
+  },
+  {
+    headline: "One hour before your interview",
+    hook: "The final hour is for clarity, not panic.",
+    tips: [
+      "Review the job post and key requirements.",
+      "Prepare a short personal introduction.",
+      "Read your CV and be ready to explain every line.",
+    ],
+    cta: "CV World helps you show up prepared.",
   },
 ];
 
@@ -384,11 +484,8 @@ function choosePostKind({ slot, country, language }) {
     return CONFIG.contentType;
   }
 
-  if (slot !== "afternoon") return "jobs_list";
-
-  const qatar = nowInQatar();
-  const seed = `${qatar.date}-${country}-${language}-afternoon-growth`;
-  return deterministicIndex(seed, 5) < 3 ? "career_tip" : "job_spotlight";
+  if (slot === "afternoon") return "career_tip";
+  return "jobs_list";
 }
 
 function uniqueHashtags(tags, limit = CONFIG.hashtagLimit) {
@@ -1170,6 +1267,12 @@ async function renderTipImage({ post, country, language }) {
 }
 
 async function renderImage({ post, country, language }) {
+  if (post.kind === "career_tip") {
+    const tipImage = await renderTipImage({ post, country, language });
+    console.log(`Generated career advice image: ${tipImage}`);
+    return tipImage;
+  }
+
   if (aiImagesEnabled()) {
     try {
       const imagePath = await renderAiCampaignImage({ post, country, language });
@@ -1179,7 +1282,7 @@ async function renderImage({ post, country, language }) {
       if (CONFIG.imageMode === "ai") {
         throw error;
       }
-      console.warn(`AI campaign image failed, falling back to SVG renderer: ${error.message}`);
+      console.warn(`AI campaign image failed, falling back to premium local renderer: ${error.message}`);
     }
   } else if (CONFIG.imageMode === "ai") {
     throw new Error("IMAGE_MODE is ai, but GEMINI_API_KEY or OPENAI_API_KEY is missing.");
