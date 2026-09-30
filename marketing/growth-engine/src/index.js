@@ -155,6 +155,17 @@ const QATAR_EXPAT_HASHTAGS = [
   "#العرب_في_قطر",
 ];
 
+const GENERIC_COMPANY_NAMES = new Set([
+  "jobs for humanity",
+  "jobsforhumanity",
+  "confidential",
+  "confidential company",
+  "private company",
+  "company",
+  "employer",
+  "recruitment agency",
+]);
+
 const CAREER_TIPS_AR = [
   {
     headline: "كيف تجاوب على سؤال: حدثني عن نفسك؟",
@@ -246,6 +257,26 @@ const CAREER_TIPS_AR = [
     ],
     cta: "CV World يساعدك تظهر بشكل أكثر احترافية.",
   },
+  {
+    headline: "لماذا يرفضك HR قبل المقابلة؟",
+    hook: "أحيانا الرفض لا يعني أنك غير مؤهل. قد يكون ملفك لا يجيب بسرعة على سؤال: لماذا أنت مناسب؟",
+    tips: [
+      "ضع الخبرة الأقرب للوظيفة في أول السيرة.",
+      "لا تترك فجوات أو عناوين غير واضحة.",
+      "اجعل أول 6 ثواني من قراءة CV مقنعة.",
+    ],
+    cta: "استخدم CV World لتحسين CV قبل التقديم.",
+  },
+  {
+    headline: "سيناريو مقابلة: لماذا تركت عملك السابق؟",
+    hook: "لا تهاجم مديرك أو شركتك السابقة. ركز على التطور والبحث عن فرصة أنسب.",
+    tips: [
+      "قل أنك تبحث عن تحدي أو بيئة تناسب خبرتك.",
+      "اذكر ما تعلمته من التجربة السابقة.",
+      "اربط جوابك بالوظيفة الجديدة بثقة.",
+    ],
+    cta: "تدرب على الإجابات الذكية مع CV World.",
+  },
 ];
 
 const CAREER_TIPS_EN = [
@@ -329,6 +360,36 @@ const CAREER_TIPS_EN = [
     ],
     cta: "CV World helps you show up prepared.",
   },
+  {
+    headline: "Why HR rejects applicants before interview",
+    hook: "Rejection does not always mean you are unqualified. Sometimes your CV does not answer the fit question fast enough.",
+    tips: [
+      "Put the most relevant experience first.",
+      "Avoid unclear titles and unexplained gaps.",
+      "Make the first 6 seconds of your CV convincing.",
+    ],
+    cta: "Use CV World to improve your CV before applying.",
+  },
+  {
+    headline: "Interview scenario: Why did you leave your last job?",
+    hook: "Do not complain about your previous company. Show maturity, learning, and direction.",
+    tips: [
+      "Say you are looking for a better-fit challenge.",
+      "Mention what the previous role taught you.",
+      "Connect your answer to the new role.",
+    ],
+    cta: "Practice smart answers with CV World.",
+  },
+  {
+    headline: "Scenario: You were rejected after applying",
+    hook: "A rejection is data, not the end. Use it to improve your next application.",
+    tips: [
+      "Compare your CV with the job requirements.",
+      "Improve keywords and measurable achievements.",
+      "Apply early when fresh jobs go live.",
+    ],
+    cta: "CV World helps you move faster and apply smarter.",
+  },
 ];
 
 function parseServiceAccount() {
@@ -386,9 +447,30 @@ function cleanCompany(value = "") {
     AccorHotel: "Accor",
     EtihadAirways5: "Etihad Airways",
     VAMSystems: "VAM Systems",
-    JobsForHumanity: "Jobs for Humanity",
+    JobsForHumanity: "Verified Employer",
+    "Jobs for Humanity": "Verified Employer",
   };
-  return replacements[raw] || raw || "Employer";
+  const cleaned = replacements[raw] || raw || "Verified Employer";
+  return GENERIC_COMPANY_NAMES.has(cleaned.toLowerCase()) ? "Verified Employer" : cleaned;
+}
+
+function displayCompany(job = {}, language = "en") {
+  const company = cleanCompany(job.company);
+  if (GENERIC_COMPANY_NAMES.has(company.toLowerCase()) || company === "Verified Employer") {
+    return language === "ar" ? "جهة توظيف موثوقة" : "Verified Employer";
+  }
+  return company;
+}
+
+function jobLine(job, language = "en") {
+  const company = displayCompany(job, language);
+  const location = job.location ? ` (${job.location})` : "";
+  return `${job.title} - ${company}${location}`;
+}
+
+function companyLocationLine(job, language = "en") {
+  const company = displayCompany(job, language);
+  return `${company}${job.location ? ` • ${job.location}` : ""}`;
 }
 
 function jobCountry(job = {}) {
@@ -523,7 +605,7 @@ function composePost({ jobs, country, language, slot }) {
   if (language === "en") {
     const opener = pick(ENGLISH_OPENERS, seed);
     const jobsText = selectedJobs.map((job, index) =>
-      `${index + 1}. ${job.title} - ${job.company}${job.location ? ` (${job.location})` : ""}`,
+      `${index + 1}. ${jobLine(job, language)}`,
     ).join("\n");
     const hashtags = growthHashtags({
       profile,
@@ -561,7 +643,7 @@ function composePost({ jobs, country, language, slot }) {
 
   const opener = pick(ARABIC_OPENERS, seed);
   const jobsText = selectedJobs.map((job, index) =>
-    `${index + 1}. ${job.title} - ${job.company}${job.location ? ` (${job.location})` : ""}`,
+    `${index + 1}. ${jobLine(job, language)}`,
   ).join("\n");
   const hashtags = growthHashtags({
     profile,
@@ -599,6 +681,7 @@ function composePost({ jobs, country, language, slot }) {
 
 function composeJobSpotlight({ job, country, language }) {
   const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
+  const displayName = displayCompany(job, language);
   const location = job.location ? ` - ${job.location}` : "";
 
   if (language === "en") {
@@ -613,12 +696,12 @@ function composeJobSpotlight({ job, country, language }) {
       kind: "job_spotlight",
       title: `${profile.flag} Featured job from CV World`,
       headline: job.title,
-      subheadline: `${job.company}${location}`,
+      subheadline: `${displayName}${location}`,
       message: [
         `${profile.flag} Featured job on CV World`,
         "",
         `Today’s highlighted opportunity: ${job.title}`,
-        `Company: ${job.company}${location}`,
+        `Employer: ${displayName}${location}`,
         "",
         "Want a stronger application?",
         "✅ Prepare a professional CV",
@@ -646,12 +729,12 @@ function composeJobSpotlight({ job, country, language }) {
     kind: "job_spotlight",
     title: `${profile.flag} وظيفة مميزة من CV World`,
     headline: job.title,
-    subheadline: `${job.company}${location}`,
+    subheadline: `${displayName}${location}`,
     message: [
       `${profile.flag} وظيفة مميزة اليوم على CV World`,
       "",
       `الوظيفة: ${job.title}`,
-      `الشركة: ${job.company}${location}`,
+      `جهة التوظيف: ${displayName}${location}`,
       "",
       "قبل التقديم، جهز نفسك جيدا:",
       "✅ CV مرتب وواضح",
@@ -824,7 +907,7 @@ function postVisualConcept({ post, country, language }) {
   const jobs = post.selectedJobs || [];
   const topJob = jobs[0];
   const jobContext = topJob
-    ? `${topJob.title} at ${topJob.company}${topJob.location ? ` in ${topJob.location}` : ""}`
+    ? `${topJob.title} at ${displayCompany(topJob, language)}${topJob.location ? ` in ${topJob.location}` : ""}`
     : `career advice for job seekers in ${profile.en}`;
 
   if (post.kind === "career_tip") {
@@ -1046,7 +1129,7 @@ function localBackdropSvg({ post, country, language }) {
     ? (isArabic ? "Career coaching" : "Interview preparation")
     : (isArabic ? "Live hiring desk" : "Live hiring desk");
   const secondary = isSpotlight
-    ? (post.selectedJobs?.[0]?.company || profile.en)
+    ? (post.selectedJobs?.[0] ? displayCompany(post.selectedJobs[0], language) : profile.en)
     : `${profile.en} job market`;
 
   return `
@@ -1415,7 +1498,7 @@ async function renderImage({ post, country, language }) {
   const jobBlocks = jobs.map((job, index) => {
     const y = 664 + index * 120;
     const titleLines = wrapText(job.title, 38, 2);
-    const companyLine = `${job.company}${job.location ? ` • ${job.location}` : ""}`;
+    const companyLine = companyLocationLine(job, language);
     const lineSvg = titleLines.map((line, lineIndex) =>
       `<text x="${isArabic ? 982 : 214}" y="${y + 36 + lineIndex * 31}" text-anchor="${isArabic ? "end" : "start"}" font-size="28" font-weight="850" fill="#0B1220">${escapeXml(line)}</text>`,
     ).join("");
@@ -1577,7 +1660,7 @@ async function main() {
     language,
     imagePath,
     message: post.message,
-    jobs: post.selectedJobs.map((job) => ({ title: job.title, company: job.company, location: job.location })),
+    jobs: post.selectedJobs.map((job) => ({ title: job.title, company: displayCompany(job, language), location: job.location })),
   };
 
   if (CONFIG.privacyMode) {
