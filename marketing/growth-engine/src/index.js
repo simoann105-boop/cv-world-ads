@@ -1189,6 +1189,116 @@ async function renderLocalCampaignImage({ post, country, language }) {
   return output;
 }
 
+function careerTipOverlaySvg({ post, country, language, logo }) {
+  const profile = COUNTRY_PROFILES[country] || COUNTRY_PROFILES.qa;
+  const isArabic = language === "ar";
+  const anchor = isArabic ? "end" : "start";
+  const textX = isArabic ? 1080 : 92;
+  const cardTextX = isArabic ? 990 : 210;
+  const numberX = isArabic ? 1040 : 160;
+  const logoX = isArabic ? 982 : 72;
+  const brandTextX = isArabic ? 948 : 202;
+  const headlineLines = wrapText(post.headline, isArabic ? 18 : 24, 3);
+  const hookLines = wrapText(post.tip.hook, isArabic ? 42 : 46, 3);
+  const tips = post.tip.tips.slice(0, 3);
+
+  const tipCards = tips.map((line, index) => {
+    const y = 760 + index * 132;
+    const lines = wrapText(line, isArabic ? 34 : 40, 2);
+    return `
+      <rect x="88" y="${y - 56}" width="1024" height="108" rx="24" fill="#FFFFFF" opacity="0.92" filter="url(#cardShadow)"/>
+      <rect x="${isArabic ? 1008 : 120}" y="${y - 32}" width="64" height="64" rx="18" fill="#F8D977"/>
+      <text x="${numberX}" y="${y + 10}" text-anchor="middle" font-size="30" font-weight="950" fill="#06111F">${index + 1}</text>
+      ${lines.map((text, lineIndex) =>
+        `<text x="${cardTextX}" y="${y - 12 + lineIndex * 34}" text-anchor="${anchor}" font-size="29" font-weight="850" fill="#06111F">${escapeXml(text)}</text>`,
+      ).join("")}
+    `;
+  }).join("");
+
+  return `
+  <svg width="1200" height="1500" viewBox="0 0 1200 1500" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="shade" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#020713" stop-opacity="0.92"/>
+        <stop offset="48%" stop-color="#07111F" stop-opacity="0.72"/>
+        <stop offset="100%" stop-color="#07111F" stop-opacity="0.20"/>
+      </linearGradient>
+      <linearGradient id="bottom" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#020713" stop-opacity="0"/>
+        <stop offset="100%" stop-color="#020713" stop-opacity="0.96"/>
+      </linearGradient>
+      <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+      </filter>
+      <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#000000" flood-opacity="0.32"/>
+      </filter>
+    </defs>
+    <rect width="1200" height="1500" fill="url(#shade)"/>
+    <rect width="1200" height="1500" fill="url(#bottom)"/>
+
+    <image href="${logo}" x="${logoX}" y="70" width="106" height="106" filter="url(#shadow)"/>
+    <text x="${brandTextX}" y="114" text-anchor="${anchor}" font-size="48" font-weight="950" fill="#F8D977">CV WORLD</text>
+    <text x="${brandTextX}" y="154" text-anchor="${anchor}" font-size="22" font-weight="850" fill="#FFFFFF" letter-spacing="4">INTERVIEW POWER</text>
+
+    <rect x="${isArabic ? 780 : 92}" y="226" width="328" height="56" rx="28" fill="#ED123F"/>
+    <text x="${isArabic ? 944 : 256}" y="263" text-anchor="middle" font-size="25" font-weight="950" fill="#FFFFFF">${isArabic ? "نصيحة مقابلة" : "INTERVIEW TIP"}</text>
+
+    ${headlineLines.map((line, index) =>
+      `<text x="${textX}" y="${360 + index * 76}" text-anchor="${anchor}" font-size="64" font-weight="950" fill="#FFFFFF" filter="url(#shadow)">${escapeXml(line)}</text>`,
+    ).join("")}
+
+    <rect x="88" y="560" width="1024" height="132" rx="30" fill="#06111F" opacity="0.78" stroke="#FFFFFF" stroke-opacity="0.18"/>
+    ${hookLines.map((line, index) =>
+      `<text x="${textX}" y="${614 + index * 36}" text-anchor="${anchor}" font-size="29" font-weight="820" fill="#EAF7FF">${escapeXml(line)}</text>`,
+    ).join("")}
+
+    ${tipCards}
+
+    <rect x="86" y="1198" width="1028" height="142" rx="34" fill="#F8D977" filter="url(#shadow)"/>
+    <text x="600" y="1256" text-anchor="middle" font-size="34" font-weight="950" fill="#06111F">${isArabic ? "جهز CV أقوى قبل أن ترسل طلبك" : "Build a stronger CV before you apply"}</text>
+    <text x="600" y="1310" text-anchor="middle" font-size="28" font-weight="900" fill="#06111F">${escapeXml(CONFIG.appLink)}</text>
+
+    <rect x="270" y="1392" width="660" height="72" rx="36" fill="#ED123F" filter="url(#shadow)"/>
+    <text x="600" y="1439" text-anchor="middle" font-size="29" font-weight="950" fill="#FFFFFF">${isArabic ? "تابع CV World للوظائف والنصائح" : `CV World • ${escapeXml(profile.en)} Career Tips`}</text>
+  </svg>`;
+}
+
+async function renderCareerTipCampaignImage({ post, country, language }) {
+  await fs.mkdir(OUTPUT_DIR, { recursive: true });
+  const logo = await logoDataUri();
+  let backdrop;
+
+  if (aiImagesEnabled()) {
+    try {
+      backdrop = await generateBackdrop({ post, country, language });
+      console.log("Generated AI career advice backdrop.");
+    } catch (error) {
+      if (CONFIG.imageMode === "ai") {
+        throw error;
+      }
+      console.warn(`AI career advice backdrop failed, falling back to premium local renderer: ${error.message}`);
+    }
+  }
+
+  if (!backdrop) {
+    backdrop = await generateLocalBackdrop({ post, country, language });
+  }
+
+  const overlay = careerTipOverlaySvg({ post, country, language, logo });
+  const hash = crypto.createHash("sha1").update(`career-tip-campaign-${post.message}-${Date.now()}`).digest("hex").slice(0, 10);
+  const output = path.join(OUTPUT_DIR, `cvworld-career-campaign-${hash}.png`);
+
+  await sharp(backdrop)
+    .resize(1200, 1500, { fit: "cover" })
+    .modulate({ saturation: 1.08, brightness: 0.88, contrast: 1.04 })
+    .composite([{ input: Buffer.from(overlay), top: 0, left: 0 }])
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toFile(output);
+
+  return output;
+}
+
 function brandHeader({ logo, isArabic, label }) {
   const logoX = isArabic ? 992 : 92;
   const textX = isArabic ? 960 : 244;
@@ -1268,8 +1378,8 @@ async function renderTipImage({ post, country, language }) {
 
 async function renderImage({ post, country, language }) {
   if (post.kind === "career_tip") {
-    const tipImage = await renderTipImage({ post, country, language });
-    console.log(`Generated career advice image: ${tipImage}`);
+    const tipImage = await renderCareerTipCampaignImage({ post, country, language });
+    console.log(`Generated premium career advice image: ${tipImage}`);
     return tipImage;
   }
 
