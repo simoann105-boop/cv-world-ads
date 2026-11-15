@@ -151,7 +151,9 @@ function government(job) {
 
 async function saveJobs(db, candidates, stats) {
   const processed = new Set();
+  const processedLinks = new Set();
   const validHosts = new Set(Object.values(PROVIDERS).flatMap((hosts) => [...hosts]));
+  const prepared = [];
   for (const raw of candidates) {
     const title = clean(raw.title);
     let apply;
@@ -163,30 +165,50 @@ async function saveJobs(db, candidates, stats) {
     const key = [normalized(title), normalized(company), normalized(location), raw.country].join("|");
     if (processed.has(key)) continue;
     processed.add(key);
-    const id = createHash("sha256").update(key).digest("hex").slice(0, 40);
-    let ref = db.collection("jobs").doc(id);
-    let existing = await ref.get();
-    if (!existing.exists) {
-      const linked = await db.collection("jobs").where("applyLink", "==", apply.href).limit(1).get();
-      if (!linked.empty) { ref = linked.docs[0].ref; existing = linked.docs[0]; }
-    }
-    const prior = existing.exists ? existing.data() || {} : {};
-    const payload = {
-      title, company, location, city: location.split(",")[0].trim(), country: raw.country,
-      category: category({ ...raw, title }), source: `${company} Careers`, sourceType: "official_ats",
-      officialSource: true, applyLink: apply.href, description: clean(raw.description),
-      isGovernment: government({ ...raw, title, company, location }),
-      isActive: true, isExpired: false, hasDirectApply: true, directApplyType: "link",
-      qualityScore: 75 + (clean(raw.description).length > 250 ? 15 : 0),
-      postedAt: parseDate(raw.postedAt) || prior.postedAt || Timestamp.now(),
-      sourcePostedAt: parseDate(raw.postedAt), updatedAt: FieldValue.serverTimestamp(),
-      lastSeenAt: FieldValue.serverTimestamp(), hash: ref.id, canonicalKey: key,
-    };
-    if (!existing.exists) { payload.createdAt = FieldValue.serverTimestamp(); stats.newJobs += 1; }
-    await ref.set(payload, { merge: true });
-    stats.savedJobs += 1;
-    stats.byCountry[raw.country] += 1;
+    if (processedLinks.has(apply.href)) continue;
+    processedLinks.add(apply.href);
+    prepared.push({ raw, title, company, location, key, apply: apply.href, id: createHash("sha256").update(key).digest("hex").slice(0, 40) });
   }
+
+  const collection = db.collection("jobs");
+  const existingById = new Map();
+  for (let i = 0; i < prepared.length; i += 100) {
+    const refs = prepared.slice(i, i + 100).map((item) => collection.doc(item.id));
+    const docs = await db.getAll(...refs);
+    for (const doc of docs) if (doc.exists) existingById.set(doc.id, doc);
+  }
+  const existingByLink = new Map();
+  const links = prepared.filter((item) => !existingById.has(item.id)).map((item) => item.apply);
+  for (let i = 0; i < links.length; i += 30) {
+    const snapshot = await collection.where("applyLink", "in", links.slice(i, i + 30)).get();
+    for (const doc of snapshot.docs) existingByLink.set(doc.get("applyLink"), doc);
+  }
+
+  const writer = db.bulkWriter();
+  const writes = [];
+  for (const item of prepared) {
+    const existing = existingById.get(item.id) || existingByLink.get(item.apply);
+    const ref = existing?.ref || collection.doc(item.id);
+    const prior = existing?.data() || {};
+    const payload = {
+      title: item.title, company: item.company, location: item.location,
+      city: item.location.split(",")[0].trim(), country: item.raw.country,
+      category: category({ ...item.raw, title: item.title }), source: `${item.company} Careers`, sourceType: "official_ats",
+      officialSource: true, applyLink: item.apply, description: clean(item.raw.description),
+      isGovernment: government({ ...item.raw, title: item.title, company: item.company, location: item.location }),
+      isActive: true, isExpired: false, hasDirectApply: true, directApplyType: "link",
+      qualityScore: 75 + (clean(item.raw.description).length > 250 ? 15 : 0),
+      postedAt: parseDate(item.raw.postedAt) || prior.postedAt || Timestamp.now(),
+      sourcePostedAt: parseDate(item.raw.postedAt), updatedAt: FieldValue.serverTimestamp(),
+      lastSeenAt: FieldValue.serverTimestamp(), hash: ref.id, canonicalKey: item.key,
+    };
+    if (!existing) { payload.createdAt = FieldValue.serverTimestamp(); stats.newJobs += 1; }
+    writes.push(writer.set(ref, payload, { merge: true }));
+    stats.savedJobs += 1;
+    stats.byCountry[item.raw.country] += 1;
+  }
+  await Promise.all(writes);
+  await writer.close();
 }
 
 async function sendPush(stats) {
