@@ -1,38 +1,26 @@
-# CV World Ads Engine
+# CV World Job Sync
 
-External GitHub Actions growth engine for CV World Facebook posts.
+This repository runs a scheduled job synchronizer for the CV World mobile app. It discovers supported public employer ATS boards, writes verified active jobs to the existing Firestore `jobs` collection, and sends a OneSignal push when newly discovered jobs are added.
 
-## Image Quality
+Firebase Cloud Functions are not used by this workflow. GitHub Actions runs the schedule; Firestore remains the app's live data source. Keep usage within the Firebase Spark plan quotas to avoid billing.
 
-The engine uses a hybrid image system:
+## Schedule
 
-- `auto` (default): generate a premium AI campaign image when `GEMINI_API_KEY` or `OPENAI_API_KEY` exists, otherwise fall back to the premium local renderer.
-- `svg`: skip AI and use the premium local renderer.
-- `ai`: require AI image generation and fail if both AI keys are missing or image generation fails.
+Runs daily at 09:00, 15:00, and 21:00 Qatar time (06:00, 12:00, and 18:00 UTC). A manual run defaults to dry-run and does not write jobs or send pushes.
 
-Add this GitHub Actions secret to enable premium AI visuals. Gemini is used first because it is the preferred image provider for this engine:
+## Required GitHub Actions secrets
 
-- `GEMINI_API_KEY`
+- `FIREBASE_SERVICE_ACCOUNT`: service-account JSON (or base64-encoded JSON) with Firestore access.
+- `ONESIGNAL_REST_API_KEY`: OneSignal REST API key for the CV World OneSignal app.
 
-Optional fallback secret:
+The OneSignal App ID is configured in the workflow. Never commit service-account JSON, API keys, or access tokens.
 
-- `OPENAI_API_KEY`
+## Job sources
 
-Optional repository variables:
+The synchronizer uses public SmartRecruiters, Greenhouse, Lever, and Ashby job-board APIs. It discovers additional boards from existing active jobs and includes a small set of seed boards. Only results with a supported official ATS apply URL and a matching Qatar, UAE, or Saudi location are written.
 
-- `IMAGE_MODE=auto`
-- `GEMINI_IMAGE_MODEL=gemini-2.5-flash-image`
+Government hiring portals that do not publish through these ATS providers need a dedicated source connector; this workflow does not claim to cover every government vacancy.
 
-The AI flow generates a realistic background only, then the engine overlays the CV World logo and exact marketing text itself. This keeps text readable, preserves the real CV World branding, and avoids AI misspellings.
+## Verify
 
-If AI credits or rate limits are unavailable, the engine now uses a premium local renderer instead of a basic fallback. It creates a cinematic office/job-market scene locally with Sharp, then applies the same CV World campaign overlay. This keeps scheduled posts visually strong even when AI providers are down.
-
-## Daily Content Mix
-
-The workflow runs three times per day in Qatar time:
-
-- 09:00: fresh live jobs post.
-- 15:00: career advice image, such as interview questions, answer frameworks, CV mistakes, ATS tips, and hiring preparation.
-- 21:00: fresh live jobs post.
-
-Career advice posts are rendered as shareable images, not only text, so followers can save and share them. This is designed to build trust while attracting job seekers back to CV World.
+Open **Actions → CV World Job Sync and Push → Run workflow** and leave dry-run set to true first. After confirming source results, run with dry-run false. Check the run logs and OneSignal recipient count.
