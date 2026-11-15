@@ -211,7 +211,7 @@ async function saveJobs(db, candidates, stats) {
   await writer.close();
 }
 
-async function sendPush(stats) {
+async function sendPush(stats, testNotification = false) {
   const key = process.env.ONESIGNAL_REST_API_KEY;
   if (!key) throw new Error("Missing ONESIGNAL_REST_API_KEY repository secret.");
   const response = await fetch("https://api.onesignal.com/notifications", {
@@ -219,10 +219,16 @@ async function sendPush(stats) {
     headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       app_id: APP_ID, target_channel: "push", included_segments: ["Total Subscriptions"],
-      headings: { en: "New jobs are live", ar: "وظائف جديدة متاحة الآن" },
+      headings: testNotification
+        ? { en: "CV World notification check", ar: "اختبار إشعارات CV World" }
+        : { en: "New jobs are live", ar: "وظائف جديدة متاحة الآن" },
       contents: {
-        en: `${stats.newJobs} new verified job${stats.newJobs === 1 ? "" : "s"} added to CV World.`,
-        ar: `أضفنا ${stats.newJobs} وظيفة موثوقة جديدة إلى CV World.`,
+        en: testNotification
+          ? "Job updates are running. Open CV World to explore current opportunities."
+          : `${stats.newJobs} new verified job${stats.newJobs === 1 ? "" : "s"} added to CV World.`,
+        ar: testNotification
+          ? "تحديثات الوظائف تعمل الآن. افتح CV World لاستكشاف الفرص المتاحة."
+          : `أضفنا ${stats.newJobs} وظيفة موثوقة جديدة إلى CV World.`,
       },
       data: { type: "new_jobs", countries: stats.byCountry },
     }),
@@ -237,16 +243,24 @@ async function main() {
   const db = firestore();
   const dryRun = process.env.DRY_RUN === "true";
   if (!dryRun && !process.env.ONESIGNAL_REST_API_KEY) throw new Error("Missing ONESIGNAL_REST_API_KEY; refusing to add jobs without push capability.");
-  const stats = { fetchedJobs: 0, savedJobs: 0, newJobs: 0, byCountry: { qa: 0, ae: 0, sa: 0 }, sourceErrors: [] };
+  const stats = {
+    fetchedJobs: 0, savedJobs: 0, newJobs: 0,
+    fetchedByCountry: { qa: 0, ae: 0, sa: 0 },
+    byCountry: { qa: 0, ae: 0, sa: 0 }, sourceErrors: [],
+  };
   const sources = await discoverSources(db);
   const tasks = sources.flatMap((source) => (source.countries || Object.keys(COUNTRIES)).map((country) => ({ source, country })));
   const candidates = [];
   for (let i = 0; i < tasks.length; i += 6) {
-    const batch = await Promise.all(tasks.slice(i, i + 6).map(async ({ source, country }) => {
+    const batchTasks = tasks.slice(i, i + 6);
+    const batch = await Promise.all(batchTasks.map(async ({ source, country }) => {
       try { return (await fetchBoard(source, country)).map((job) => ({ ...job, country })); }
       catch (error) { stats.sourceErrors.push(`${source.provider}/${source.board}/${country}: ${error.message}`); return []; }
     }));
-    candidates.push(...batch.flat());
+    batch.forEach((jobs, index) => {
+      candidates.push(...jobs);
+      stats.fetchedByCountry[batchTasks[index].country] += jobs.length;
+    });
   }
   if (!tasks.length || stats.sourceErrors.length === tasks.length) {
     throw new Error(`All job source checks failed. ${stats.sourceErrors[0] || "No supported sources found."}`);
@@ -265,10 +279,13 @@ async function main() {
     for (const country of Object.keys(stats.byCountry)) pending.byCountry[country] += stats.byCountry[country];
     await state.set({ pendingNotification: pending }, { merge: true });
   }
+  const testNotification = process.env.SEND_TEST_NOTIFICATION === "true";
   let notification = { status: "no_new_jobs" };
-  if (pending.newJobs > 0) {
-    notification = await sendPush(pending);
+  if (pending.newJobs > 0 || testNotification) {
+    notification = await sendPush(pending.newJobs > 0 ? pending : stats, testNotification);
+    if (pending.newJobs > 0) {
     await state.set({ pendingNotification: FieldValue.delete() }, { merge: true });
+    }
   }
   const run = {
     name: "githubJobSync", status: "success", ...stats, notification,
@@ -277,7 +294,7 @@ async function main() {
   };
   await db.collection("scraper_runs").add(run);
   await state.set({ lastRunAt: FieldValue.serverTimestamp(), status: "success", ...stats, notification }, { merge: true });
-  console.log(JSON.stringify({ ...run, sourceErrors: stats.sourceErrors.length }));
+  console.log(`SYNC_SUMMARY ${JSON.stringify({ ...run, sourceErrors: stats.sourceErrors.length })}`);
 }
 
 main().catch((error) => {
