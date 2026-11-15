@@ -15,6 +15,14 @@ on:
         options:
           - "true"
           - "false"
+      send_test_notification:
+        description: "Send a one-time notification check to all OneSignal subscribers"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: read
@@ -50,5 +58,6 @@ jobs:
           ONESIGNAL_REST_API_KEY: ${{ secrets.ONESIGNAL_REST_API_KEY }}
           ONESIGNAL_APP_ID: "01a6beb2-665b-4684-b4f4-19c04c918706"
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          SEND_TEST_NOTIFICATION: ${{ github.event_name == 'workflow_dispatch' && inputs.send_test_notification || 'false' }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: npm run sync
