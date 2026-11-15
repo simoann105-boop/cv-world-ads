@@ -385,6 +385,25 @@ async function main() {
     });
     return;
   }
+  const testNotification = process.env.SEND_TEST_NOTIFICATION === "true";
+  if (testNotification) {
+    if (dryRun) throw new Error("Set dry_run=false to send the one-time test notification.");
+    const notification = await sendPush({
+      newJobs: 0,
+      byCountry: { qa: 0, ae: 0, sa: 0 },
+    }, true);
+    report("SYNC_SUMMARY", {
+      githubRunId: process.env.GITHUB_RUN_ID || null,
+      dryRun: false,
+      testNotification: true,
+      fetchedJobs: 0,
+      newJobs: 0,
+      savedJobs: 0,
+      sourceErrors: 0,
+      notification,
+    });
+    return;
+  }
   const db = firestore();
   if (!dryRun && !process.env.ONESIGNAL_REST_API_KEY) throw new Error("Missing ONESIGNAL_REST_API_KEY; refusing to add jobs without push capability.");
   const stats = {
@@ -430,11 +449,9 @@ async function main() {
     for (const country of Object.keys(stats.byCountry)) pending.byCountry[country] += stats.byCountry[country];
     await state.set({ pendingNotification: pending }, { merge: true });
   }
-  const testNotification = process.env.SEND_TEST_NOTIFICATION === "true";
   let notification = { status: "no_new_jobs" };
-  if (pending.newJobs > 0 || testNotification) {
-    const useTestNotification = testNotification && pending.newJobs === 0;
-    notification = await sendPush(pending.newJobs > 0 ? pending : stats, useTestNotification);
+  if (pending.newJobs > 0) {
+    notification = await sendPush(pending.newJobs > 0 ? pending : stats, false);
     if (pending.newJobs > 0) {
       if (notification.recipients === 0) {
         notification.status = "accepted_no_subscribed_devices";
