@@ -357,6 +357,23 @@ async function sendPush(stats, testNotification = false) {
     signal: AbortSignal.timeout(20000),
   });
   const body = await response.json().catch(() => ({}));
+  const noSubscribedDevices = response.ok &&
+    !body.id &&
+    Array.isArray(body.errors) &&
+    body.errors.some((error) => String(error).toLowerCase().includes("all included players are not subscribed"));
+  if (noSubscribedDevices) {
+    const recipients = Number(body.recipients || 0);
+    report("ONESIGNAL_NO_RECIPIENTS", {
+      recipients,
+      reason: "Every targeted push subscription is currently unsubscribed.",
+    });
+    return {
+      status: "no_subscribed_devices",
+      id: null,
+      recipients,
+      delivery: { status: "not_sent" },
+    };
+  }
   if (!response.ok || !body.id) throw new Error(`OneSignal rejected notification: ${JSON.stringify(body.errors || body)}`);
   const recipients = body.recipients == null ? null : Number(body.recipients);
   report("ONESIGNAL_ACCEPTED", { notificationId: body.id, recipients });
@@ -454,7 +471,7 @@ async function main() {
     notification = await sendPush(pending.newJobs > 0 ? pending : stats, false);
     if (pending.newJobs > 0) {
       if (notification.recipients === 0) {
-        notification.status = "accepted_no_subscribed_devices";
+        notification.status = "no_subscribed_devices_pending";
         await state.set({ pendingNotification: pending }, { merge: true });
         report("ONESIGNAL_NO_RECIPIENTS", { pendingJobs: pending.newJobs });
       } else {
