@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
+import { appendFileSync } from "node:fs";
 
 const APP_ID = process.env.ONESIGNAL_APP_ID || "01a6beb2-665b-4684-b4f4-19c04c918706";
 const COUNTRIES = {
@@ -59,6 +60,77 @@ function parseDate(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : Timestamp.fromDate(date);
+}
+
+function report(event, payload = {}) {
+  process.stdout.write(event + " " + JSON.stringify(payload) + "\n");
+  if (event !== "SYNC_SUMMARY" || !process.env.GITHUB_STEP_SUMMARY) return;
+
+  const notification = payload.notification || {};
+  const delivery = notification.delivery || {};
+  const summary = [
+    "## CV World job sync",
+    "",
+    "- GitHub run: " + (payload.githubRunId || "local"),
+    "- Jobs fetched: " + (payload.fetchedJobs ?? 0),
+    "- New jobs added: " + (payload.newJobs ?? 0),
+    "- Jobs refreshed: " + (payload.savedJobs ?? 0),
+    "- Qatar / UAE / Saudi Arabia: " + [
+      payload.byCountry?.qa ?? 0,
+      payload.byCountry?.ae ?? 0,
+      payload.byCountry?.sa ?? 0,
+    ].join(" / "),
+    "- Source errors: " + (Array.isArray(payload.sourceErrors) ? payload.sourceErrors.length : 0),
+    "- OneSignal: " + (notification.status || "not sent"),
+    "- Message ID: " + (notification.id || "none"),
+    "- Delivery status: " + (delivery.status || "not checked"),
+    "- Successful / failed / errored / received: " + [
+      delivery.successful ?? "n/a",
+      delivery.failed ?? "n/a",
+      delivery.errored ?? "n/a",
+      delivery.received ?? "n/a",
+    ].join(" / "),
+    "",
+  ].join("\n");
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary, "utf8");
+}
+
+async function getPushDelivery(id, key) {
+  let latest = { status: "status_check_unavailable" };
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 4000));
+    try {
+      const url = new URL("https://api.onesignal.com/notifications/" + encodeURIComponent(id));
+      url.searchParams.set("app_id", APP_ID);
+      const response = await fetch(url, {
+        headers: { Authorization: "Key " + key },
+        signal: AbortSignal.timeout(20000),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        latest = {
+          status: "status_check_failed",
+          httpStatus: response.status,
+          error: String(body.errors?.[0] || body.errors || "OneSignal status request failed").slice(0, 240),
+        };
+        continue;
+      }
+      latest = {
+        status: body.completed_at ? "completed" : "processing",
+        successful: Number(body.successful ?? 0),
+        failed: Number(body.failed ?? 0),
+        errored: Number(body.errored ?? 0),
+        received: Number(body.received ?? 0),
+        remaining: Number(body.remaining ?? 0),
+        completedAt: body.completed_at || null,
+        platformDeliveryStats: body.platform_delivery_stats || null,
+      };
+      if (body.completed_at || latest.successful + latest.failed + latest.errored > 0) return latest;
+    } catch (error) {
+      latest = { status: "status_check_failed", error: String(error.message || error).slice(0, 240) };
+    }
+  }
+  return latest;
 }
 
 async function discoverSources(db) {
@@ -145,8 +217,30 @@ function category(job) {
 }
 
 function government(job) {
-  return job.country === "qa" && /hamad|hospital|health|police|ministry|government|education|university|ashghal|kahramaa|qatarenergy|sidra|phcc|lekhwiya|civil defence|وزارة|حمد|الشرطة|حكوم|تعليم|صحة/i
-    .test(`${job.title} ${job.company} ${job.description} ${job.location}`);
+  if (job.country !== "qa") return false;
+  const employer = normalized(job.company);
+  const officialEmployers = [
+    "hamad medical corporation",
+    "ministry of interior",
+    "ministry of education",
+    "ministry of public health",
+    "ministry of municipality",
+    "ministry of labour",
+    "ministry of justice",
+    "ministry of social development and family",
+    "primary health care corporation",
+    "public works authority",
+    "ashghal",
+    "kahramaa",
+    "general tax authority",
+    "state audit bureau",
+    "qatar university",
+    "civil service and government development bureau",
+    "qatar police",
+    "government of qatar",
+    "qatar government",
+  ];
+  return officialEmployers.some((name) => employer === name || employer.startsWith(name + " "));
 }
 
 async function saveJobs(db, candidates, stats) {
@@ -218,7 +312,7 @@ async function sendPush(stats, testNotification = false) {
     method: "POST",
     headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      app_id: APP_ID, target_channel: "push", included_segments: ["Total Subscriptions"],
+      app_id: APP_ID, target_channel: "push", included_segments: ["Subscribed Users"],
       headings: testNotification
         ? { en: "CV World notification check", ar: "اختبار إشعارات CV World" }
         : { en: "New jobs are live", ar: "وظائف جديدة متاحة الآن" },
@@ -236,12 +330,17 @@ async function sendPush(stats, testNotification = false) {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.id) throw new Error(`OneSignal rejected notification: ${JSON.stringify(body.errors || body)}`);
-  return { status: "accepted", id: body.id, recipients: Number(body.recipients || 0) };
+  const recipients = body.recipients == null ? null : Number(body.recipients);
+  report("ONESIGNAL_ACCEPTED", { notificationId: body.id, recipients });
+  const delivery = await getPushDelivery(body.id, key);
+  report("ONESIGNAL_DELIVERY", { notificationId: body.id, ...delivery });
+  return { status: "accepted", id: body.id, recipients, delivery };
 }
 
 async function main() {
-  const db = firestore();
   const dryRun = process.env.DRY_RUN === "true";
+  report("SYNC_STARTED", { githubRunId: process.env.GITHUB_RUN_ID || null, dryRun });
+  const db = firestore();
   if (!dryRun && !process.env.ONESIGNAL_REST_API_KEY) throw new Error("Missing ONESIGNAL_REST_API_KEY; refusing to add jobs without push capability.");
   const stats = {
     fetchedJobs: 0, savedJobs: 0, newJobs: 0,
@@ -250,6 +349,7 @@ async function main() {
   };
   const sources = await discoverSources(db);
   const tasks = sources.flatMap((source) => (source.countries || Object.keys(COUNTRIES)).map((country) => ({ source, country })));
+  report("SYNC_SOURCES", { sources: sources.length, tasks: tasks.length });
   const candidates = [];
   for (let i = 0; i < tasks.length; i += 6) {
     const batchTasks = tasks.slice(i, i + 6);
@@ -266,11 +366,17 @@ async function main() {
     throw new Error(`All job source checks failed. ${stats.sourceErrors[0] || "No supported sources found."}`);
   }
   stats.fetchedJobs = candidates.length;
+  report("SYNC_FETCHED", {
+    fetchedJobs: stats.fetchedJobs,
+    fetchedByCountry: stats.fetchedByCountry,
+    sourceErrors: stats.sourceErrors,
+  });
   if (dryRun) {
-    console.log(JSON.stringify({ dryRun, sources: sources.length, tasks: tasks.length, ...stats }, null, 2));
+    report("SYNC_SUMMARY", { dryRun, sources: sources.length, tasks: tasks.length, ...stats });
     return;
   }
   await saveJobs(db, candidates, stats);
+  report("SYNC_SAVED", { savedJobs: stats.savedJobs, newJobs: stats.newJobs, byCountry: stats.byCountry });
   const state = db.collection("job_sync_state").doc("github");
   const oldState = (await state.get()).data() || {};
   const pending = oldState.pendingNotification || { newJobs: 0, byCountry: { qa: 0, ae: 0, sa: 0 } };
@@ -282,9 +388,10 @@ async function main() {
   const testNotification = process.env.SEND_TEST_NOTIFICATION === "true";
   let notification = { status: "no_new_jobs" };
   if (pending.newJobs > 0 || testNotification) {
-    notification = await sendPush(pending.newJobs > 0 ? pending : stats, testNotification);
+    const useTestNotification = testNotification && pending.newJobs === 0;
+    notification = await sendPush(pending.newJobs > 0 ? pending : stats, useTestNotification);
     if (pending.newJobs > 0) {
-    await state.set({ pendingNotification: FieldValue.delete() }, { merge: true });
+      await state.set({ pendingNotification: FieldValue.delete() }, { merge: true });
     }
   }
   const run = {
@@ -294,7 +401,7 @@ async function main() {
   };
   await db.collection("scraper_runs").add(run);
   await state.set({ lastRunAt: FieldValue.serverTimestamp(), status: "success", ...stats, notification }, { merge: true });
-  console.log(`SYNC_SUMMARY ${JSON.stringify({ ...run, sourceErrors: stats.sourceErrors.length })}`);
+  report("SYNC_SUMMARY", { ...run, sourceErrors: stats.sourceErrors.length });
 }
 
 main().catch((error) => {
