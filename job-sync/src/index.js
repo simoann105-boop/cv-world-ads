@@ -357,8 +357,7 @@ async function sendPush(stats, testNotification = false) {
     signal: AbortSignal.timeout(20000),
   });
   const body = await response.json().catch(() => ({}));
-  const noSubscribedDevices = response.ok &&
-    !body.id &&
+  const noSubscribedDevices = !body.id &&
     Array.isArray(body.errors) &&
     body.errors.some((error) => String(error).toLowerCase().includes("all included players are not subscribed"));
   if (noSubscribedDevices) {
