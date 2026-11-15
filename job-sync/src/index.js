@@ -86,9 +86,20 @@ async function fetchBoard(source, country) {
   let items;
   if (source.provider === "smartrecruiters") {
     const url = new URL(`https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(source.board)}/postings`);
-    url.searchParams.set("country", countryInfo.code);
+    // SmartRecruiters expects lowercase ISO country codes. Uppercase is accepted
+    // but silently returns an empty result set.
+    url.searchParams.set("country", countryInfo.code.toLowerCase());
     url.searchParams.set("limit", "100");
-    items = (await getJson(url)).content || [];
+    items = [];
+    let totalFound = Infinity;
+    for (let offset = 0; offset < totalFound && offset < 1000; offset += 100) {
+      url.searchParams.set("offset", String(offset));
+      const page = await getJson(url);
+      const content = page.content || [];
+      items.push(...content);
+      totalFound = Number(page.totalFound ?? content.length);
+      if (content.length < 100) break;
+    }
     return items.filter((item) => matchesCountry(`${item.location?.country || ""} ${item.location?.fullLocation || ""} ${item.location?.city || ""}`, country)).map((item) => ({
       title: item.name, company: item.company?.name || source.company || source.board,
       location: item.location?.fullLocation || item.location?.city || countryInfo.name,
