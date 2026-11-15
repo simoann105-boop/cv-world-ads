@@ -341,6 +341,28 @@ async function main() {
   const dryRun = process.env.DRY_RUN === "true";
   report("SYNC_STARTED", { githubRunId: process.env.GITHUB_RUN_ID || null, dryRun });
   const db = firestore();
+  const diagnosticRunId = String(process.env.CHECK_NOTIFICATION_RUN_ID || "").trim();
+  if (diagnosticRunId) {
+    const key = process.env.ONESIGNAL_REST_API_KEY;
+    if (!key) throw new Error("Missing ONESIGNAL_REST_API_KEY repository secret.");
+    const savedRuns = await db.collection("scraper_runs")
+      .where("githubRunId", "==", diagnosticRunId)
+      .limit(1)
+      .get();
+    if (savedRuns.empty) throw new Error("No saved job-sync record found for run " + diagnosticRunId);
+    const savedRun = savedRuns.docs[0].data();
+    const savedNotification = savedRun.notification || {};
+    if (!savedNotification.id) throw new Error("The saved run has no OneSignal notification ID.");
+    const delivery = await getPushDelivery(savedNotification.id, key);
+    report("ONESIGNAL_DIAGNOSTIC", {
+      sourceRunId: diagnosticRunId,
+      notificationId: savedNotification.id,
+      acceptedRecipients: savedNotification.recipients ?? null,
+      originalStatus: savedNotification.status || null,
+      ...delivery,
+    });
+    return;
+  }
   if (!dryRun && !process.env.ONESIGNAL_REST_API_KEY) throw new Error("Missing ONESIGNAL_REST_API_KEY; refusing to add jobs without push capability.");
   const stats = {
     fetchedJobs: 0, savedJobs: 0, newJobs: 0,
