@@ -80,7 +80,7 @@ function report(event, payload = {}) {
       payload.byCountry?.ae ?? 0,
       payload.byCountry?.sa ?? 0,
     ].join(" / "),
-    "- Source errors: " + (Array.isArray(payload.sourceErrors) ? payload.sourceErrors.length : 0),
+    "- Source errors: " + (Array.isArray(payload.sourceErrors) ? payload.sourceErrors.length : Number(payload.sourceErrors || 0)),
     "- OneSignal: " + (notification.status || "not sent"),
     "- Message ID: " + (notification.id || "none"),
     "- Delivery status: " + (delivery.status || "not checked"),
