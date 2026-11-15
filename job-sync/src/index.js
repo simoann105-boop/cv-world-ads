@@ -349,13 +349,20 @@ async function main() {
       .where("githubRunId", "==", diagnosticRunId)
       .limit(1)
       .get();
-    if (savedRuns.empty) throw new Error("No saved job-sync record found for run " + diagnosticRunId);
-    const savedRun = savedRuns.docs[0].data();
-    const savedNotification = savedRun.notification || {};
-    if (!savedNotification.id) throw new Error("The saved run has no OneSignal notification ID.");
+    let savedRun = savedRuns.empty ? null : savedRuns.docs[0].data();
+    let savedNotification = savedRun?.notification || {};
+    let sourceRunId = diagnosticRunId;
+    if (!savedNotification.id) {
+      const latestState = await db.collection("job_sync_state").doc("github").get();
+      const stateData = latestState.data() || {};
+      savedNotification = stateData.notification || {};
+      sourceRunId = stateData.githubRunId || "latest saved sync";
+    }
+    if (!savedNotification.id) throw new Error("No saved OneSignal notification ID was found for this run or the latest sync.");
     const delivery = await getPushDelivery(savedNotification.id, key);
     report("ONESIGNAL_DIAGNOSTIC", {
-      sourceRunId: diagnosticRunId,
+      requestedRunId: diagnosticRunId,
+      sourceRunId,
       notificationId: savedNotification.id,
       acceptedRecipients: savedNotification.recipients ?? null,
       originalStatus: savedNotification.status || null,
