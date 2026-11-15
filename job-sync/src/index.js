@@ -101,11 +101,14 @@ async function findNotificationForRun(runId, key) {
   url.searchParams.set("limit", "50");
   url.searchParams.set("kind", "1");
   const response = await fetch(url, {
-    headers: { Authorization: "Key " + key },
+    headers: { Authorization: "Key " + String(key || "").trim() },
     signal: AbortSignal.timeout(20000),
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("OneSignal rejected ONESIGNAL_REST_API_KEY for message-history access. Create or rotate an App API key in OneSignal Settings > Keys & IDs (the value starts with os_v2_app_) and replace the GitHub secret; do not use the App ID or Key ID.");
+    }
     throw new Error("OneSignal message history lookup failed: " + JSON.stringify(body.errors || body));
   }
   const messages = Array.isArray(body.notifications) ? body.notifications : [];
@@ -128,7 +131,7 @@ async function getPushDelivery(id, key) {
       const url = new URL("https://api.onesignal.com/notifications/" + encodeURIComponent(id));
       url.searchParams.set("app_id", APP_ID);
       const response = await fetch(url, {
-        headers: { Authorization: "Key " + key },
+        headers: { Authorization: "Key " + String(key || "").trim() },
         signal: AbortSignal.timeout(20000),
       });
       const body = await response.json().catch(() => ({}));
@@ -331,7 +334,7 @@ async function saveJobs(db, candidates, stats) {
 }
 
 async function sendPush(stats, testNotification = false) {
-  const key = process.env.ONESIGNAL_REST_API_KEY;
+  const key = String(process.env.ONESIGNAL_REST_API_KEY || "").trim();
   if (!key) throw new Error("Missing ONESIGNAL_REST_API_KEY repository secret.");
   const response = await fetch("https://api.onesignal.com/notifications", {
     method: "POST",
@@ -365,10 +368,9 @@ async function sendPush(stats, testNotification = false) {
 async function main() {
   const dryRun = process.env.DRY_RUN === "true";
   report("SYNC_STARTED", { githubRunId: process.env.GITHUB_RUN_ID || null, dryRun });
-  const db = firestore();
   const diagnosticRunId = String(process.env.CHECK_NOTIFICATION_RUN_ID || "").trim();
   if (diagnosticRunId) {
-    const key = process.env.ONESIGNAL_REST_API_KEY;
+    const key = String(process.env.ONESIGNAL_REST_API_KEY || "").trim();
     if (!key) throw new Error("Missing ONESIGNAL_REST_API_KEY repository secret.");
     const match = await findNotificationForRun(diagnosticRunId, key);
     const message = match.message;
@@ -383,6 +385,7 @@ async function main() {
     });
     return;
   }
+  const db = firestore();
   if (!dryRun && !process.env.ONESIGNAL_REST_API_KEY) throw new Error("Missing ONESIGNAL_REST_API_KEY; refusing to add jobs without push capability.");
   const stats = {
     fetchedJobs: 0, savedJobs: 0, newJobs: 0,
@@ -433,7 +436,13 @@ async function main() {
     const useTestNotification = testNotification && pending.newJobs === 0;
     notification = await sendPush(pending.newJobs > 0 ? pending : stats, useTestNotification);
     if (pending.newJobs > 0) {
-      await state.set({ pendingNotification: FieldValue.delete() }, { merge: true });
+      if (notification.recipients === 0) {
+        notification.status = "accepted_no_subscribed_devices";
+        await state.set({ pendingNotification: pending }, { merge: true });
+        report("ONESIGNAL_NO_RECIPIENTS", { pendingJobs: pending.newJobs });
+      } else {
+        await state.set({ pendingNotification: FieldValue.delete() }, { merge: true });
+      }
     }
   }
   const run = {
