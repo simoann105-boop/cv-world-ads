@@ -95,6 +95,31 @@ function report(event, payload = {}) {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary, "utf8");
 }
 
+async function findNotificationForRun(runId, key) {
+  const url = new URL("https://api.onesignal.com/notifications");
+  url.searchParams.set("app_id", APP_ID);
+  url.searchParams.set("limit", "50");
+  url.searchParams.set("kind", "1");
+  const response = await fetch(url, {
+    headers: { Authorization: "Key " + key },
+    signal: AbortSignal.timeout(20000),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error("OneSignal message history lookup failed: " + JSON.stringify(body.errors || body));
+  }
+  const messages = Array.isArray(body.notifications) ? body.notifications : [];
+  const exact = messages.find((message) =>
+    message.data?.github_run_id === runId
+  );
+  const latestTest = messages.find((message) =>
+    message.headings?.en === "CV World notification check"
+  );
+  const message = exact || latestTest;
+  if (!message?.id) throw new Error("No matching message was found in the latest 50 OneSignal API notifications.");
+  return { message, matchedBy: exact ? "github_run_id" : "latest_test_title" };
+}
+
 async function getPushDelivery(id, key) {
   let latest = { status: "status_check_unavailable" };
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -324,7 +349,7 @@ async function sendPush(stats, testNotification = false) {
           ? "تحديثات الوظائف تعمل الآن. افتح CV World لاستكشاف الفرص المتاحة."
           : `أضفنا ${stats.newJobs} وظيفة موثوقة جديدة إلى CV World.`,
       },
-      data: { type: "new_jobs", countries: stats.byCountry },
+      data: { type: "new_jobs", github_run_id: process.env.GITHUB_RUN_ID || null, countries: stats.byCountry },
     }),
     signal: AbortSignal.timeout(20000),
   });
@@ -345,27 +370,15 @@ async function main() {
   if (diagnosticRunId) {
     const key = process.env.ONESIGNAL_REST_API_KEY;
     if (!key) throw new Error("Missing ONESIGNAL_REST_API_KEY repository secret.");
-    const savedRuns = await db.collection("scraper_runs")
-      .where("githubRunId", "==", diagnosticRunId)
-      .limit(1)
-      .get();
-    let savedRun = savedRuns.empty ? null : savedRuns.docs[0].data();
-    let savedNotification = savedRun?.notification || {};
-    let sourceRunId = diagnosticRunId;
-    if (!savedNotification.id) {
-      const latestState = await db.collection("job_sync_state").doc("github").get();
-      const stateData = latestState.data() || {};
-      savedNotification = stateData.notification || {};
-      sourceRunId = stateData.githubRunId || "latest saved sync";
-    }
-    if (!savedNotification.id) throw new Error("No saved OneSignal notification ID was found for this run or the latest sync.");
-    const delivery = await getPushDelivery(savedNotification.id, key);
+    const match = await findNotificationForRun(diagnosticRunId, key);
+    const message = match.message;
+    const delivery = await getPushDelivery(message.id, key);
     report("ONESIGNAL_DIAGNOSTIC", {
       requestedRunId: diagnosticRunId,
-      sourceRunId,
-      notificationId: savedNotification.id,
-      acceptedRecipients: savedNotification.recipients ?? null,
-      originalStatus: savedNotification.status || null,
+      matchedBy: match.matchedBy,
+      notificationId: message.id,
+      acceptedRecipients: message.recipients ?? null,
+      queuedAt: message.queued_at ?? null,
       ...delivery,
     });
     return;
