@@ -331,8 +331,9 @@ async function saveJobs(db, candidates, stats) {
     stats.byCountry[item.raw.country] += 1;
   }
   report("SYNC_SAVE_COMMIT_STARTED", { writes: writes.length, newJobs: stats.newJobs });
-  await Promise.all(writes);
+  // close() dispatches the queued writes; then inspect each write result.
   await writer.close();
+  await Promise.all(writes);
   report("SYNC_SAVE_COMMIT_FINISHED", { writes: writes.length, newJobs: stats.newJobs });
 }
 
