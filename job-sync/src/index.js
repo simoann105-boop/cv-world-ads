@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
 
 const APP_ID = process.env.ONESIGNAL_APP_ID || "01a6beb2-665b-4684-b4f4-19c04c918706";
+const ONESIGNAL_SEGMENT = process.env.ONESIGNAL_SEGMENT || "Total Subscriptions";
+
 const COUNTRIES = {
   qa: { name: "Qatar", code: "QA", terms: ["qatar", "doha", "lusail", "al wakrah", "al rayyan"] },
   ae: { name: "United Arab Emirates", code: "AE", terms: ["uae", "united arab emirates", "dubai", "abu dhabi", "sharjah"] },
@@ -350,12 +352,12 @@ async function saveJobs(db, candidates, stats, notificationCheckpoint) {
 async function sendPush(stats, testNotification = false) {
   const key = String(process.env.ONESIGNAL_REST_API_KEY || "").trim();
   if (!key) throw new Error("Missing ONESIGNAL_REST_API_KEY repository secret.");
-  report("ONESIGNAL_SEND_STARTED", { jobs: stats.newJobs, testNotification });
+  report("ONESIGNAL_SEND_STARTED", { jobs: stats.newJobs, testNotification, segment: ONESIGNAL_SEGMENT });
   const response = await fetch("https://api.onesignal.com/notifications", {
     method: "POST",
     headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      app_id: APP_ID, target_channel: "push", included_segments: ["Subscribed Users"],
+      app_id: APP_ID, target_channel: "push", included_segments: [ONESIGNAL_SEGMENT],
       headings: testNotification
         ? { en: "CV World notification check", ar: "اختبار إشعارات CV World" }
         : { en: "New jobs are live", ar: "وظائف جديدة متاحة الآن" },
