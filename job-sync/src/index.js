@@ -73,7 +73,8 @@ function report(event, payload = {}) {
     "",
     "- GitHub run: " + (payload.githubRunId || "local"),
     "- Jobs fetched: " + (payload.fetchedJobs ?? 0),
-    "- New jobs added: " + (payload.newJobs ?? 0),
+    "- New jobs to notify: " + (payload.newJobs ?? 0),
+    "- New job records inserted: " + (payload.insertedJobs ?? 0),
     "- Jobs refreshed: " + (payload.savedJobs ?? 0),
     "- Qatar / UAE / Saudi Arabia: " + [
       payload.byCountry?.qa ?? 0,
@@ -271,7 +272,7 @@ function government(job) {
   return officialEmployers.some((name) => employer === name || employer.startsWith(name + " "));
 }
 
-async function saveJobs(db, candidates, stats) {
+async function saveJobs(db, candidates, stats, notificationCheckpoint) {
   const processed = new Set();
   const processedLinks = new Set();
   const validHosts = new Set(Object.values(PROVIDERS).flatMap((hosts) => [...hosts]));
@@ -313,6 +314,8 @@ async function saveJobs(db, candidates, stats) {
     const existing = existingById.get(item.id) || existingByLink.get(item.apply);
     const ref = existing?.ref || collection.doc(item.id);
     const prior = existing?.data() || {};
+    const sourcePostedAt = parseDate(item.raw.postedAt);
+    const postedSinceCheckpoint = sourcePostedAt && sourcePostedAt.toMillis() > notificationCheckpoint.toMillis();
     const payload = {
       title: item.title, company: item.company, location: item.location,
       city: item.location.split(",")[0].trim(), country: item.raw.country,
@@ -321,11 +324,18 @@ async function saveJobs(db, candidates, stats) {
       isGovernment: government({ ...item.raw, title: item.title, company: item.company, location: item.location }),
       isActive: true, isExpired: false, hasDirectApply: true, directApplyType: "link",
       qualityScore: 75 + (clean(item.raw.description).length > 250 ? 15 : 0),
-      postedAt: parseDate(item.raw.postedAt) || prior.postedAt || Timestamp.now(),
-      sourcePostedAt: parseDate(item.raw.postedAt), updatedAt: FieldValue.serverTimestamp(),
+      postedAt: sourcePostedAt || prior.postedAt || Timestamp.now(),
+      sourcePostedAt, updatedAt: FieldValue.serverTimestamp(),
       lastSeenAt: FieldValue.serverTimestamp(), hash: ref.id, canonicalKey: item.key,
     };
-    if (!existing) { payload.createdAt = FieldValue.serverTimestamp(); stats.newJobs += 1; }
+    if (!existing) {
+      payload.createdAt = FieldValue.serverTimestamp();
+      stats.insertedJobs += 1;
+    }
+    if (!existing || postedSinceCheckpoint) {
+      stats.newJobs += 1;
+      stats.notificationByCountry[item.raw.country] += 1;
+    }
     writes.push(writer.set(ref, payload, { merge: true }));
     stats.savedJobs += 1;
     stats.byCountry[item.raw.country] += 1;
@@ -427,10 +437,22 @@ async function main() {
   }
   const db = firestore();
   if (!dryRun && !process.env.ONESIGNAL_REST_API_KEY) throw new Error("Missing ONESIGNAL_REST_API_KEY; refusing to add jobs without push capability.");
+  const syncState = db.collection("job_sync_state").doc("github");
+  const syncStateData = (await syncState.get()).data() || {};
+  const storedCheckpoint = syncStateData.sourceNotificationCheckpointAt;
+  const notificationCheckpoint = storedCheckpoint?.toMillis
+    ? storedCheckpoint
+    : Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
+  report("SYNC_NOTIFICATION_CHECKPOINT", {
+    bootstrapWindow: !storedCheckpoint,
+    since: notificationCheckpoint.toDate().toISOString(),
+  });
   const stats = {
-    fetchedJobs: 0, savedJobs: 0, newJobs: 0,
+    fetchedJobs: 0, savedJobs: 0, insertedJobs: 0, newJobs: 0,
     fetchedByCountry: { qa: 0, ae: 0, sa: 0 },
-    byCountry: { qa: 0, ae: 0, sa: 0 }, sourceErrors: [],
+    byCountry: { qa: 0, ae: 0, sa: 0 },
+    notificationByCountry: { qa: 0, ae: 0, sa: 0 },
+    sourceErrors: [],
   };
   const sources = await discoverSources(db);
   const tasks = sources.flatMap((source) => (source.countries || Object.keys(COUNTRIES)).map((country) => ({ source, country })));
@@ -461,17 +483,18 @@ async function main() {
     return;
   }
   report("SYNC_SAVE_STARTED", { candidates: candidates.length });
-  await saveJobs(db, candidates, stats);
+  await saveJobs(db, candidates, stats, notificationCheckpoint);
   report("SYNC_SAVED", { savedJobs: stats.savedJobs, newJobs: stats.newJobs, byCountry: stats.byCountry });
-  report("SYNC_SAVED", { savedJobs: stats.savedJobs, newJobs: stats.newJobs, byCountry: stats.byCountry });
-  const state = db.collection("job_sync_state").doc("github");
-  const oldState = (await state.get()).data() || {};
+  report("SYNC_SAVED", { savedJobs: stats.savedJobs, insertedJobs: stats.insertedJobs, newJobs: stats.newJobs, byCountry: stats.byCountry });
+  const oldState = syncStateData;
   const pending = oldState.pendingNotification || { newJobs: 0, byCountry: { qa: 0, ae: 0, sa: 0 } };
   report("SYNC_NOTIFICATION_STATE", { newJobsThisRun: stats.newJobs, pendingJobs: pending.newJobs || 0 });
   if (stats.newJobs) {
     pending.newJobs += stats.newJobs;
-    for (const country of Object.keys(stats.byCountry)) pending.byCountry[country] += stats.byCountry[country];
-    await state.set({ pendingNotification: pending }, { merge: true });
+    for (const country of Object.keys(stats.notificationByCountry)) {
+      pending.byCountry[country] = Number(pending.byCountry[country] || 0) + stats.notificationByCountry[country];
+    }
+    await syncState.set({ pendingNotification: pending }, { merge: true });
   }
   let notification = { status: "no_new_jobs" };
   if (pending.newJobs > 0) {
@@ -479,10 +502,10 @@ async function main() {
     if (pending.newJobs > 0) {
       if (notification.recipients === 0) {
         notification.status = "no_subscribed_devices_pending";
-        await state.set({ pendingNotification: pending }, { merge: true });
+        await syncState.set({ pendingNotification: pending }, { merge: true });
         report("ONESIGNAL_NO_RECIPIENTS", { pendingJobs: pending.newJobs });
       } else {
-        await state.set({ pendingNotification: FieldValue.delete() }, { merge: true });
+        await syncState.set({ pendingNotification: FieldValue.delete() }, { merge: true });
       }
     }
   }
@@ -492,7 +515,11 @@ async function main() {
     createdAt: FieldValue.serverTimestamp(),
   };
   await db.collection("scraper_runs").add(run);
-  await state.set({ lastRunAt: FieldValue.serverTimestamp(), status: "success", ...stats, notification }, { merge: true });
+  await syncState.set({
+    lastRunAt: FieldValue.serverTimestamp(),
+    sourceNotificationCheckpointAt: Timestamp.now(),
+    status: "success", ...stats, notification,
+  }, { merge: true });
   report("SYNC_SUMMARY", { ...run, sourceErrors: stats.sourceErrors.length });
 }
 
