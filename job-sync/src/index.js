@@ -292,6 +292,7 @@ async function saveJobs(db, candidates, stats) {
     prepared.push({ raw, title, company, location, key, apply: apply.href, id: createHash("sha256").update(key).digest("hex").slice(0, 40) });
   }
 
+  report("SYNC_SAVE_PREPARED", { candidates: candidates.length, validUniqueJobs: prepared.length });
   const collection = db.collection("jobs");
   const existingById = new Map();
   for (let i = 0; i < prepared.length; i += 100) {
@@ -329,13 +330,16 @@ async function saveJobs(db, candidates, stats) {
     stats.savedJobs += 1;
     stats.byCountry[item.raw.country] += 1;
   }
+  report("SYNC_SAVE_COMMIT_STARTED", { writes: writes.length, newJobs: stats.newJobs });
   await Promise.all(writes);
   await writer.close();
+  report("SYNC_SAVE_COMMIT_FINISHED", { writes: writes.length, newJobs: stats.newJobs });
 }
 
 async function sendPush(stats, testNotification = false) {
   const key = String(process.env.ONESIGNAL_REST_API_KEY || "").trim();
   if (!key) throw new Error("Missing ONESIGNAL_REST_API_KEY repository secret.");
+  report("ONESIGNAL_SEND_STARTED", { jobs: stats.newJobs, testNotification });
   const response = await fetch("https://api.onesignal.com/notifications", {
     method: "POST",
     headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
@@ -455,11 +459,14 @@ async function main() {
     report("SYNC_SUMMARY", { dryRun, sources: sources.length, tasks: tasks.length, ...stats });
     return;
   }
+  report("SYNC_SAVE_STARTED", { candidates: candidates.length });
   await saveJobs(db, candidates, stats);
+  report("SYNC_SAVED", { savedJobs: stats.savedJobs, newJobs: stats.newJobs, byCountry: stats.byCountry });
   report("SYNC_SAVED", { savedJobs: stats.savedJobs, newJobs: stats.newJobs, byCountry: stats.byCountry });
   const state = db.collection("job_sync_state").doc("github");
   const oldState = (await state.get()).data() || {};
   const pending = oldState.pendingNotification || { newJobs: 0, byCountry: { qa: 0, ae: 0, sa: 0 } };
+  report("SYNC_NOTIFICATION_STATE", { newJobsThisRun: stats.newJobs, pendingJobs: pending.newJobs || 0 });
   if (stats.newJobs) {
     pending.newJobs += stats.newJobs;
     for (const country of Object.keys(stats.byCountry)) pending.byCountry[country] += stats.byCountry[country];
@@ -488,7 +495,11 @@ async function main() {
   report("SYNC_SUMMARY", { ...run, sourceErrors: stats.sourceErrors.length });
 }
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
+  report("SYNC_FAILED", { message: String(error.message || error).slice(0, 500) });
   console.error(error.stack || error.message || error);
   process.exitCode = 1;
-});
+}
+
