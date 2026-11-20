@@ -391,7 +391,7 @@ async function sendPush(stats, testNotification = false, hrAdvice = null) {
   const highlights = (Array.isArray(stats.highlights) ? stats.highlights : stats.newJobHighlights || [])
     .slice(0, 3)
     .map((job) => `- ${String(job.title || "").slice(0, 100)} (${String(job.location || "").slice(0, 50)})`)
-    .join("\\n");
+    .join("\n");
   const jobCount = Number(stats.newJobs || 0);
   report("ONESIGNAL_SEND_STARTED", { jobs: jobCount, type, segment: ONESIGNAL_SEGMENT });
   const response = await fetch("https://api.onesignal.com/notifications", {
@@ -411,12 +411,12 @@ async function sendPush(stats, testNotification = false, hrAdvice = null) {
           ? "Job updates are running. Open CV World to explore current opportunities."
           : hrAdvice
             ? hrAdvice.en
-            : `${jobCount} new verified job${jobCount === 1 ? "" : "s"} added to CV World.${highlights ? `\\n${highlights}` : ""}`,
+            : `${jobCount} new verified job${jobCount === 1 ? "" : "s"} added to CV World.${highlights ? `\n${highlights}` : ""}`,
         ar: testNotification
           ? "تحديثات الوظائف تعمل الآن. افتح CV World لاستكشاف الفرص المتاحة."
           : hrAdvice
             ? hrAdvice.ar
-            : `أضفنا ${jobCount} وظيفة موثوقة جديدة إلى CV World.${highlights ? `\\n${highlights}` : ""}`,
+            : `أضفنا ${jobCount} وظيفة موثوقة جديدة إلى CV World.${highlights ? `\n${highlights}` : ""}`,
       },
       data: {
         type,
