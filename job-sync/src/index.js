@@ -23,6 +23,37 @@ const PROVIDERS = {
   ashby: new Set(["jobs.ashbyhq.com"]),
 };
 
+const HR_ADVICE = [
+  { topic: "STAR interview answers", en: "Answer with STAR: explain the Situation, your Task, the Action you took, and the Result.", ar: "أجب بأسلوب STAR: اشرح الموقف والمهمة والإجراء الذي اتخذته والنتيجة." },
+  { topic: "Tailor your CV", en: "Match your CV summary and skills to the role, using only experience you can support with examples.", ar: "خصص ملخص سيرتك ومهاراتك للوظيفة، واذكر فقط ما تستطيع إثباته بأمثلة." },
+  { topic: "Show measurable impact", en: "Strengthen experience bullets with honest numbers: team size, time saved, sales, or work completed.", ar: "قوِّ خبراتك بأرقام صادقة: حجم الفريق أو الوقت الموفّر أو المبيعات أو حجم الإنجاز." },
+  { topic: "Research the employer", en: "Before an interview, learn what the employer does and prepare one reason this role fits your goals.", ar: "قبل المقابلة، تعرّف على جهة العمل وجهّز سبباً واضحاً يناسب أهدافك لهذه الوظيفة." },
+  { topic: "Keep answers focused", en: "Keep each interview answer focused: lead with the point, give one example, then stop.", ar: "اجعل إجابتك في المقابلة مركزة: ابدأ بالفكرة، أعط مثالاً واحداً، ثم اختم." },
+  { topic: "Ask thoughtful questions", en: "Prepare two questions about the role, team priorities, or what success looks like in the first months.", ar: "جهّز سؤالين عن المهام أو أولويات الفريق أو معايير النجاح في الأشهر الأولى." },
+  { topic: "Use clear CV formatting", en: "Use clear section headings and simple formatting so recruiters and ATS tools can scan your CV easily.", ar: "استخدم عناوين واضحة وتنسيقاً بسيطاً ليسهل على مسؤولي التوظيف وأنظمة ATS قراءة سيرتك." },
+  { topic: "Explain career gaps", en: "If asked about a career gap, answer honestly and briefly, then focus on how you are ready for the role now.", ar: "إذا سُئلت عن فجوة مهنية، أجب بصدق واختصار، ثم ركز على استعدادك للوظيفة الآن." },
+  { topic: "Prepare a short introduction", en: "Practice a 30-second introduction covering your relevant experience, strongest skill, and next goal.", ar: "تدرّب على تعريف بنفسك خلال ٣٠ ثانية: خبرتك المناسبة وأقوى مهارة وهدفك القادم." },
+  { topic: "Follow up professionally", en: "After an interview, send a brief thank-you message that refers to one specific part of your conversation.", ar: "بعد المقابلة، أرسل رسالة شكر قصيرة تشير إلى نقطة محددة ناقشتها مع المحاور." },
+  { topic: "Handle rejection constructively", en: "If rejected, thank the recruiter, ask politely for one improvement point, and keep applying.", ar: "عند الرفض، اشكر مسؤول التوظيف واطلب بلطف ملاحظة للتحسين، ثم واصل التقديم." },
+  { topic: "Be specific about skills", en: "For every skill on your CV, prepare a short real example showing how you used it at work.", ar: "لكل مهارة في سيرتك، حضّر مثالاً واقعياً قصيراً يوضح كيف استخدمتها في العمل." },
+];
+
+function scheduledHrAdvice(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Qatar",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  const day = Math.floor(Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day)) / 86400000);
+  const hour = Number(values.hour);
+  const slot = hour < 12 ? 0 : hour < 18 ? 1 : 2;
+  return HR_ADVICE[(day * 3 + slot) % HR_ADVICE.length];
+}
+
 function firestore() {
   if (!admin.getApps().length) {
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -84,6 +115,7 @@ function report(event, payload = {}) {
       payload.byCountry?.sa ?? 0,
     ].join(" / "),
     "- Source errors: " + (Array.isArray(payload.sourceErrors) ? payload.sourceErrors.length : Number(payload.sourceErrors || 0)),
+    "- Notification type: " + (notification.type || "none"),
     "- OneSignal: " + (notification.status || "not sent"),
     "- Message ID: " + (notification.id || "none"),
     "- Delivery status: " + (delivery.status || "not checked"),
@@ -337,6 +369,9 @@ async function saveJobs(db, candidates, stats, notificationCheckpoint) {
     if (!existing || postedSinceCheckpoint) {
       stats.newJobs += 1;
       stats.notificationByCountry[item.raw.country] += 1;
+      if (stats.newJobHighlights.length < 3) {
+        stats.newJobHighlights.push({ title: item.title, location: item.location });
+      }
     }
     writes.push(writer.set(ref, payload, { merge: true }));
     stats.savedJobs += 1;
@@ -349,27 +384,46 @@ async function saveJobs(db, candidates, stats, notificationCheckpoint) {
   report("SYNC_SAVE_COMMIT_FINISHED", { writes: writes.length, newJobs: stats.newJobs });
 }
 
-async function sendPush(stats, testNotification = false) {
+async function sendPush(stats, testNotification = false, hrAdvice = null) {
   const key = String(process.env.ONESIGNAL_REST_API_KEY || "").trim();
   if (!key) throw new Error("Missing ONESIGNAL_REST_API_KEY repository secret.");
-  report("ONESIGNAL_SEND_STARTED", { jobs: stats.newJobs, testNotification, segment: ONESIGNAL_SEGMENT });
+  const type = testNotification ? "notification_check" : hrAdvice ? "hr_advice" : "new_jobs";
+  const highlights = (Array.isArray(stats.highlights) ? stats.highlights : stats.newJobHighlights || [])
+    .slice(0, 3)
+    .map((job) => `- ${String(job.title || "").slice(0, 100)} (${String(job.location || "").slice(0, 50)})`)
+    .join("\\n");
+  const jobCount = Number(stats.newJobs || 0);
+  report("ONESIGNAL_SEND_STARTED", { jobs: jobCount, type, segment: ONESIGNAL_SEGMENT });
   const response = await fetch("https://api.onesignal.com/notifications", {
     method: "POST",
     headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      app_id: APP_ID, target_channel: "push", included_segments: [ONESIGNAL_SEGMENT],
+      app_id: APP_ID,
+      target_channel: "push",
+      included_segments: [ONESIGNAL_SEGMENT],
       headings: testNotification
         ? { en: "CV World notification check", ar: "اختبار إشعارات CV World" }
-        : { en: "New jobs are live", ar: "وظائف جديدة متاحة الآن" },
+        : hrAdvice
+          ? { en: "CV World HR tip", ar: "نصيحة توظيف من CV World" }
+          : { en: "New jobs are live", ar: "وظائف جديدة متاحة الآن" },
       contents: {
         en: testNotification
           ? "Job updates are running. Open CV World to explore current opportunities."
-          : `${stats.newJobs} new verified job${stats.newJobs === 1 ? "" : "s"} added to CV World.`,
+          : hrAdvice
+            ? hrAdvice.en
+            : `${jobCount} new verified job${jobCount === 1 ? "" : "s"} added to CV World.${highlights ? `\\n${highlights}` : ""}`,
         ar: testNotification
           ? "تحديثات الوظائف تعمل الآن. افتح CV World لاستكشاف الفرص المتاحة."
-          : `أضفنا ${stats.newJobs} وظيفة موثوقة جديدة إلى CV World.`,
+          : hrAdvice
+            ? hrAdvice.ar
+            : `أضفنا ${jobCount} وظيفة موثوقة جديدة إلى CV World.${highlights ? `\\n${highlights}` : ""}`,
       },
-      data: { type: "new_jobs", github_run_id: process.env.GITHUB_RUN_ID || null, countries: stats.byCountry },
+      data: {
+        type,
+        github_run_id: process.env.GITHUB_RUN_ID || null,
+        countries: stats.byCountry || stats.notificationByCountry || { qa: 0, ae: 0, sa: 0 },
+        ...(hrAdvice ? { advice_topic: hrAdvice.topic } : {}),
+      },
     }),
     signal: AbortSignal.timeout(20000),
   });
@@ -382,9 +436,11 @@ async function sendPush(stats, testNotification = false) {
     report("ONESIGNAL_NO_RECIPIENTS", {
       recipients,
       reason: "Every targeted push subscription is currently unsubscribed.",
+      type,
     });
     return {
       status: "no_subscribed_devices",
+      type,
       id: null,
       recipients,
       delivery: { status: "not_sent" },
@@ -392,12 +448,11 @@ async function sendPush(stats, testNotification = false) {
   }
   if (!response.ok || !body.id) throw new Error(`OneSignal rejected notification: ${JSON.stringify(body.errors || body)}`);
   const recipients = body.recipients == null ? null : Number(body.recipients);
-  report("ONESIGNAL_ACCEPTED", { notificationId: body.id, recipients });
+  report("ONESIGNAL_ACCEPTED", { notificationId: body.id, recipients, type });
   const delivery = await getPushDelivery(body.id, key);
-  report("ONESIGNAL_DELIVERY", { notificationId: body.id, ...delivery });
-  return { status: "accepted", id: body.id, recipients, delivery };
+  report("ONESIGNAL_DELIVERY", { notificationId: body.id, type, ...delivery });
+  return { status: "accepted", type, id: body.id, recipients, delivery };
 }
-
 async function main() {
   const dryRun = process.env.DRY_RUN === "true";
   report("SYNC_STARTED", { githubRunId: process.env.GITHUB_RUN_ID || null, dryRun });
@@ -453,6 +508,7 @@ async function main() {
     fetchedJobs: 0, savedJobs: 0, insertedJobs: 0, newJobs: 0,
     fetchedByCountry: { qa: 0, ae: 0, sa: 0 },
     byCountry: { qa: 0, ae: 0, sa: 0 },
+    newJobHighlights: [],
     notificationByCountry: { qa: 0, ae: 0, sa: 0 },
     sourceErrors: [],
   };
@@ -490,26 +546,30 @@ async function main() {
   report("SYNC_SAVED", { savedJobs: stats.savedJobs, insertedJobs: stats.insertedJobs, newJobs: stats.newJobs, byCountry: stats.byCountry });
   const oldState = syncStateData;
   const pending = oldState.pendingNotification || { newJobs: 0, byCountry: { qa: 0, ae: 0, sa: 0 } };
+  pending.highlights = Array.isArray(pending.highlights) ? pending.highlights : [];
   report("SYNC_NOTIFICATION_STATE", { newJobsThisRun: stats.newJobs, pendingJobs: pending.newJobs || 0 });
   if (stats.newJobs) {
     pending.newJobs += stats.newJobs;
     for (const country of Object.keys(stats.notificationByCountry)) {
       pending.byCountry[country] = Number(pending.byCountry[country] || 0) + stats.notificationByCountry[country];
     }
+    pending.highlights = [...pending.highlights, ...stats.newJobHighlights].slice(0, 3);
     await syncState.set({ pendingNotification: pending }, { merge: true });
   }
-  let notification = { status: "no_new_jobs" };
+  let notification;
   if (pending.newJobs > 0) {
-    notification = await sendPush(pending.newJobs > 0 ? pending : stats, false);
-    if (pending.newJobs > 0) {
-      if (notification.recipients === 0) {
-        notification.status = "no_subscribed_devices_pending";
-        await syncState.set({ pendingNotification: pending }, { merge: true });
-        report("ONESIGNAL_NO_RECIPIENTS", { pendingJobs: pending.newJobs });
-      } else {
-        await syncState.set({ pendingNotification: FieldValue.delete() }, { merge: true });
-      }
+    notification = await sendPush(pending, false);
+    if (notification.recipients === 0) {
+      notification.status = "no_subscribed_devices_pending";
+      await syncState.set({ pendingNotification: pending }, { merge: true });
+      report("ONESIGNAL_NO_RECIPIENTS", { pendingJobs: pending.newJobs });
+    } else {
+      await syncState.set({ pendingNotification: FieldValue.delete() }, { merge: true });
     }
+  } else {
+    const advice = scheduledHrAdvice();
+    report("HR_ADVICE_SELECTED", { topic: advice.topic });
+    notification = await sendPush(stats, false, advice);
   }
   const run = {
     name: "githubJobSync", status: "success", ...stats, notification,
